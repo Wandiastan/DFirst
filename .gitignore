@@ -2,16 +2,6 @@
 
 # dependencies
 node_modules/
-.expo/
-dist/
-npm-debug.*
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
-*.orig.*
-web-build/
 
 # Expo
 .expo/
@@ -31,6 +21,7 @@ expo-env.d.ts
 .metro-health-check*
 
 # debug
+npm-debug.*
 yarn-debug.*
 yarn-error.*
 
@@ -45,20 +36,3 @@ yarn-error.*
 *.tsbuildinfo
 
 app-example
-
-# environment variables
-.env
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Temporary files
-*.log
-*.tmp
-
-# Build files
-build/
-*.tsbuildinfo
