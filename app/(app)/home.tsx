@@ -1,12 +1,11 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { StyleSheet, TouchableOpacity, View, Modal, TextInput, Linking, Alert } from 'react-native';
-import { router } from 'expo-router';
+import { router, useSegments } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { logout, getCurrentUser } from '../firebase.config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback } from 'react';
 
 import { ThemedText } from '@/components/ThemedText';
 
@@ -21,44 +20,69 @@ interface DerivAccount {
   };
 }
 
+interface DerivOAuthTokens {
+  accounts: Array<{
+    account: string;
+    token: string;
+    currency: string;
+  }>;
+  selectedAccount?: {
+    account: string;
+    token: string;
+    currency: string;
+  };
+}
+
 const DERIV_API_KEY = '@deriv_api_key';
+const DERIV_OAUTH_TOKENS = '@deriv_oauth_tokens';
 const DERIV_WS_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=67709';
 const APP_ID = '67709';
-const CREATE_API_KEY_URL = 'https://app.deriv.com/account/api-token';
-const CREATE_MT5_URL = 'https://app.deriv.com/mt5';
-const P2P_URL = 'https://p2p.deriv.com/advertiser/426826?advert_id=3182910';
-const BOTS_URL = 'https://app.deriv.com/bot';
+const CREATE_API_KEY_URL = 'https://app.deriv.com/account/api-token?t=_30qaRjl291dMjdsyM5hasGNd7ZgqdRLk';
+const CREATE_MT5_URL = 'https://app.deriv.com/mt5?t=_30qaRjl291dMjdsyM5hasGNd7ZgqdRLk';
+const P2P_URL = 'https://p2p.deriv.com/advertiser/426826?advert_id=3182910&t=_30qaRjl291dMjdsyM5hasGNd7ZgqdRLk';
+const BOTS_URL = 'https://app.deriv.com/bot?t=_30qaRjl291dMjdsyM5hasGNd7ZgqdRLk';
+const OAUTH_URL = `https://oauth.deriv.com/oauth2/authorize?app_id=${APP_ID}&l=en&brand=deriv&app_markup_percentage=0&t=_30qaRjl291dMjdsyM5hasGNd7ZgqdRLk&redirect_uri=dfirsttrader://oauth2/callback`;
 
 function HomeScreen() {
-  const [showGuide, setShowGuide] = useState(false);
+  const [showDisconnectModal, setShowDisconnectModal] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [account, setAccount] = useState<DerivAccount | null>(null);
+  const [previousApiKey, setPreviousApiKey] = useState('');
+  const [oauthTokens, setOauthTokens] = useState<DerivOAuthTokens | null>(null);
+  const [isOAuthConnected, setIsOAuthConnected] = useState(false);
+  const [isFirstLogin, setIsFirstLogin] = useState(true);
 
   useFocusEffect(
     useCallback(() => {
-      checkExistingApiKey();
+      checkExistingConnections();
     }, [])
   );
 
-  const checkExistingApiKey = async () => {
+  const checkExistingConnections = async () => {
     try {
+      const savedTokens = await AsyncStorage.getItem(DERIV_OAUTH_TOKENS);
       const savedKey = await AsyncStorage.getItem(DERIV_API_KEY);
-      if (savedKey) {
+      const firstLoginFlag = await AsyncStorage.getItem('@first_login');
+      
+      setIsFirstLogin(!firstLoginFlag);
+      
+      if (savedTokens) {
+        const tokens = JSON.parse(savedTokens) as DerivOAuthTokens;
+        setOauthTokens(tokens);
+        setIsOAuthConnected(true);
+        if (tokens.selectedAccount) {
+          connectWithOAuth(tokens.selectedAccount.token);
+        }
+      } else if (savedKey) {
         setApiKey(savedKey);
         const connected = await connectWithKey(savedKey);
         if (!connected) {
-          setShowGuide(true);
           setAccount(null);
         }
-      } else {
-        setShowGuide(true);
-        setAccount(null);
       }
     } catch (error) {
-      console.error('Error checking API key:', error);
-      setShowGuide(true);
-      setAccount(null);
+      console.error('Error checking connections:', error);
     }
   };
 
@@ -69,12 +93,11 @@ function HomeScreen() {
       let ws: WebSocket | null = null;
       let authorized = false;
       let connectionTimeout: NodeJS.Timeout;
-      let pingInterval: NodeJS.Timeout;
 
       const cleanup = () => {
-        if (pingInterval) clearInterval(pingInterval);
         if (connectionTimeout) clearTimeout(connectionTimeout);
         if (ws) {
+          console.log('[Home] Closing connection as expected - balance check complete');
           ws.onclose = null;
           ws.onerror = null;
           ws.close();
@@ -85,19 +108,20 @@ function HomeScreen() {
         ws = new WebSocket(DERIV_WS_URL);
 
         ws.onopen = () => {
-          console.log('[Deriv] WebSocket connection established');
+          console.log('[Home] WebSocket connection established for balance check');
           
+          if (ws) {
           const authRequest = {
             authorize: formattedKey,
             req_id: Date.now()
           };
           
           ws.send(JSON.stringify(authRequest));
-          console.log('[Deriv] Sent authorization request');
+          }
 
           connectionTimeout = setTimeout(() => {
             if (!authorized) {
-              console.log('[Deriv] Connection timeout - no authorization response');
+              console.log('[Home] Balance check timeout - closing connection');
               cleanup();
               resolve(false);
             }
@@ -107,29 +131,17 @@ function HomeScreen() {
         ws.onmessage = (msg) => {
           try {
             const response = JSON.parse(msg.data);
-            console.log(`[Deriv] Received message type: ${response.msg_type}`);
 
             if (response.error) {
-              console.error('[Deriv] API Error:', {
-                code: response.error.code,
-                message: response.error.message
-              });
-              
-              if (response.error.code === 'InvalidToken' || 
-                  response.error.code === 'AuthorizationRequired') {
-                AsyncStorage.removeItem(DERIV_API_KEY);
-                setAccount(null);
-                setShowGuide(true);
+              console.log('[Home] API Error during balance check:', response.error.message);
                 cleanup();
                 resolve(false);
-              }
               return;
             }
 
             if (response.msg_type === 'authorize') {
               authorized = true;
               clearTimeout(connectionTimeout);
-              console.log('[Deriv] Authorization successful');
 
               if (response.authorize) {
                 setAccount({
@@ -138,30 +150,28 @@ function HomeScreen() {
                   currency: response.authorize.currency
                 });
 
+                if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
                   mt5_login_list: 1,
                   req_id: Date.now()
                 }));
-
-                pingInterval = setInterval(() => {
-                  if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ ping: 1 }));
                   }
-                }, 30000);
-
-                setShowGuide(false);
-                resolve(true);
               }
             }
 
             if (response.msg_type === 'mt5_login_list') {
               if (response.mt5_login_list?.length > 0) {
                 const mt5Account = response.mt5_login_list[0];
+                if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
                   mt5_get_settings: 1,
                   login: mt5Account.login,
                   req_id: Date.now()
                 }));
+                }
+              } else {
+                cleanup();
+                resolve(true);
               }
             }
 
@@ -180,51 +190,75 @@ function HomeScreen() {
                   };
                 });
               }
+              cleanup();
+              resolve(true);
             }
           } catch (error) {
-            console.error('[Deriv] Error processing message:', error);
+            console.log('[Home] Error processing message during balance check:', error);
             resolve(false);
           }
         };
 
-        ws.onerror = (error) => {
-          console.error('[Deriv] WebSocket error:', {
-            timestamp: new Date().toISOString()
-          });
+        ws.onerror = () => {
+          console.log('[Home] WebSocket error during balance check');
           resolve(false);
         };
 
-        ws.onclose = (event) => {
-          console.log('[Deriv] WebSocket connection closed:', {
-            code: event.code,
-            reason: event.reason || 'Connection closed',
-            wasClean: event.wasClean,
-            timestamp: new Date().toISOString()
-          });
+        ws.onclose = () => {
+          console.log('[Home] WebSocket connection closed after balance check');
           cleanup();
           setLoading(false);
           resolve(false);
         };
       });
     } catch (error) {
-      console.error('[Deriv] Connection error:', error);
+      console.log('[Home] Connection error during balance check:', error);
       setLoading(false);
       return false;
     }
   };
 
-  const handleApiKeySubmit = async () => {
-    if (!apiKey.trim()) {
+  const handleDisconnect = async () => {
+    try {
+      if (isOAuthConnected) {
+        await AsyncStorage.removeItem(DERIV_OAUTH_TOKENS);
+        setOauthTokens(null);
+        setIsOAuthConnected(false);
+      } else {
+        await AsyncStorage.removeItem(DERIV_API_KEY);
+      }
+      setAccount(null);
+      setLoading(false);
+      setShowDisconnectModal(false);
+    } catch (error) {
+      console.error('Error disconnecting:', error);
+      setLoading(false);
+    }
+  };
+
+  const handleApiKeyChange = (text: string) => {
+    setApiKey(text);
+  };
+
+  const handleReconnect = async () => {
+    if (previousApiKey) {
+      setApiKey(previousApiKey);
+      handleApiKeySubmit(previousApiKey);
+    }
+  };
+
+  const handleApiKeySubmit = async (keyToUse = apiKey) => {
+    if (!keyToUse.trim()) {
       Alert.alert('Error', 'Please enter your API key');
       return;
     }
 
     setLoading(true);
     try {
-      const connected = await connectWithKey(apiKey.trim());
+      const connected = await connectWithKey(keyToUse.trim());
       if (connected) {
-        await AsyncStorage.setItem(DERIV_API_KEY, apiKey.trim());
-        setShowGuide(false);
+        await AsyncStorage.setItem(DERIV_API_KEY, keyToUse.trim());
+        setPreviousApiKey('');
       } else {
         Alert.alert('Error', 'Failed to connect with API key');
         await AsyncStorage.removeItem(DERIV_API_KEY);
@@ -234,17 +268,6 @@ function HomeScreen() {
       Alert.alert('Error', 'Failed to connect with API key');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleDisconnect = async () => {
-    try {
-      await AsyncStorage.removeItem(DERIV_API_KEY);
-      setAccount(null);
-      setShowGuide(true);
-      Alert.alert('Success', 'Disconnected from Deriv');
-    } catch (error) {
-      console.error('Error disconnecting:', error);
     }
   };
 
@@ -258,6 +281,207 @@ function HomeScreen() {
     }
   };
 
+  const handleOAuthLogin = async () => {
+    try {
+      await AsyncStorage.setItem('@first_login', 'true');
+      setIsFirstLogin(false);
+      await Linking.openURL(OAUTH_URL);
+    } catch (error) {
+      console.error('Error opening OAuth URL:', error);
+      Alert.alert('Error', 'Failed to open OAuth login');
+    }
+  };
+
+  const parseOAuthCallback = (url: string): DerivOAuthTokens => {
+    const params = new URLSearchParams(url.split('?')[1]);
+    const accounts = [];
+    let i = 1;
+    
+    while (params.has(`acct${i}`) && params.has(`token${i}`) && params.has(`cur${i}`)) {
+      accounts.push({
+        account: params.get(`acct${i}`)!,
+        token: params.get(`token${i}`)!,
+        currency: params.get(`cur${i}`)!.toUpperCase()
+      });
+      i++;
+    }
+
+    return {
+      accounts,
+      selectedAccount: accounts[0] // Default to first account
+    };
+  };
+
+  const handleOAuthCallback = async (url: string) => {
+    try {
+      const tokens = parseOAuthCallback(url);
+      await AsyncStorage.setItem(DERIV_OAUTH_TOKENS, JSON.stringify(tokens));
+      setOauthTokens(tokens);
+      setIsOAuthConnected(true);
+      
+      if (tokens.selectedAccount) {
+        connectWithOAuth(tokens.selectedAccount.token);
+      }
+    } catch (error) {
+      console.error('Error handling OAuth callback:', error);
+      Alert.alert('Error', 'Failed to process OAuth login');
+    }
+  };
+
+  const connectWithOAuth = async (token: string) => {
+    setLoading(true);
+    try {
+      let ws: WebSocket | null = null;
+      let authorized = false;
+      let connectionTimeout: NodeJS.Timeout;
+
+      const cleanup = () => {
+        if (connectionTimeout) clearTimeout(connectionTimeout);
+        if (ws) {
+          console.log('[Home] Closing OAuth connection as expected - balance check complete');
+          ws.onclose = null;
+          ws.onerror = null;
+          ws.close();
+        }
+      };
+
+      return new Promise<boolean>((resolve) => {
+        ws = new WebSocket(DERIV_WS_URL);
+
+        ws.onopen = () => {
+          console.log('[Home] OAuth WebSocket connection established for balance check');
+          
+          if (ws) {
+            const authRequest = {
+              authorize: token,
+              req_id: Date.now()
+            };
+            
+            ws.send(JSON.stringify(authRequest));
+          }
+
+          connectionTimeout = setTimeout(() => {
+            if (!authorized) {
+              console.log('[Home] OAuth balance check timeout - closing connection');
+              cleanup();
+              resolve(false);
+            }
+          }, 10000);
+        };
+
+        ws.onmessage = (msg) => {
+          try {
+            const response = JSON.parse(msg.data);
+
+            if (response.error) {
+              console.log('[Home] API Error during balance check:', response.error.message);
+              cleanup();
+              resolve(false);
+              return;
+            }
+
+            if (response.msg_type === 'authorize') {
+              authorized = true;
+              clearTimeout(connectionTimeout);
+
+              if (response.authorize) {
+                setAccount({
+                  account_id: response.authorize.loginid,
+                  balance: Number(response.authorize.balance),
+                  currency: response.authorize.currency
+                });
+
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({
+                    mt5_login_list: 1,
+                    req_id: Date.now()
+                  }));
+                }
+              }
+            }
+
+            if (response.msg_type === 'mt5_login_list') {
+              if (response.mt5_login_list?.length > 0) {
+                const mt5Account = response.mt5_login_list[0];
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({
+                    mt5_get_settings: 1,
+                    login: mt5Account.login,
+                    req_id: Date.now()
+                  }));
+                }
+              } else {
+                cleanup();
+                resolve(true);
+              }
+            }
+
+            if (response.msg_type === 'mt5_get_settings') {
+              if (response.mt5_get_settings) {
+                const mt5Settings = response.mt5_get_settings;
+                setAccount(prev => {
+                  if (!prev) return null;
+                  return {
+                    ...prev,
+                    mt5_account: {
+                      login: mt5Settings.login,
+                      balance: Number(mt5Settings.balance),
+                      currency: mt5Settings.currency
+                    }
+                  };
+                });
+              }
+              cleanup();
+              resolve(true);
+            }
+          } catch (error) {
+            console.log('[Home] Error processing message during balance check:', error);
+            resolve(false);
+          }
+        };
+
+        ws.onerror = () => {
+          console.log('[Home] WebSocket error during balance check');
+          resolve(false);
+        };
+
+        ws.onclose = () => {
+          console.log('[Home] WebSocket connection closed after balance check');
+          cleanup();
+          setLoading(false);
+          resolve(false);
+        };
+      });
+    } catch (error) {
+      console.log('[Home] OAuth connection error during balance check:', error);
+      setLoading(false);
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    const subscription = Linking.addEventListener('url', (event) => {
+      if (event.url.includes('dfirsttrader://oauth2/callback')) {
+        handleOAuthCallback(event.url);
+        // Ensure we're on the home screen after OAuth callback
+        router.replace('/(app)/home');
+      }
+    });
+
+    // Check for initial URL (app opened via OAuth callback)
+    Linking.getInitialURL().then(url => {
+      if (url && url.includes('dfirsttrader://oauth2/callback')) {
+        handleOAuthCallback(url);
+        // Ensure we're on the home screen for initial URL
+        router.replace('/(app)/home');
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
   return (
     <SafeAreaView edges={['top']} style={styles.container}>
       <View style={styles.header}>
@@ -266,7 +490,7 @@ function HomeScreen() {
           <ThemedText style={styles.nameText}>{getCurrentUser()?.displayName}</ThemedText>
         </View>
         <TouchableOpacity 
-          style={styles.settingsButton}
+          style={styles.headerButton}
           onPress={() => router.push('/(app)/settings')}
         >
           <Ionicons name="settings-outline" size={24} color="#1E293B" />
@@ -275,11 +499,53 @@ function HomeScreen() {
       
       <View style={styles.container}>
         <View style={styles.accountContainer}>
-          {account ? (
+          {!account && !isOAuthConnected ? (
+            <View style={styles.welcomeCardContainer}>
+              <View style={styles.welcomeCard}>
+                <View style={styles.welcomeIconContainer}>
+                  <Ionicons name="wallet-outline" size={48} color="#FF444F" />
+                </View>
+                <ThemedText style={styles.welcomeDescription}>
+                  Connect to deposit, withdraw, and trade on Deriv
+                </ThemedText>
+                <View style={styles.oauthCard}>
+                  <ThemedText style={styles.oauthTitle}>Connect with Deriv</ThemedText>
+                  <ThemedText style={styles.oauthDescription}>
+                    Sign in with your Deriv account to start trading
+                  </ThemedText>
+                  <TouchableOpacity
+                    style={styles.oauthButton}
+                    onPress={handleOAuthLogin}
+                  >
+                    <ThemedText style={styles.oauthButtonText}>Connect Account</ThemedText>
+                  </TouchableOpacity>
+                  
+                  <View style={styles.dividerContainer}>
+                    <View style={styles.divider} />
+                    <ThemedText style={styles.dividerText}>Don't have an account yet?</ThemedText>
+                    <View style={styles.divider} />
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.oauthButton, styles.joinButton]}
+                    onPress={() => Linking.openURL('https://track.deriv.com/_30qaRjl291dMjdsyM5hasGNd7ZgqdRLk/1/')}
+                  >
+                    <ThemedText style={styles.oauthButtonText}>Create Deriv Account</ThemedText>
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity 
+                  onPress={() => router.push('/(app)/settings')}
+                  style={styles.apiKeyLink}
+                >
+                  <ThemedText style={styles.apiKeyLinkText}>Use API Key Instead</ThemedText>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : account ? (
             <View style={styles.accountCard}>
               <View style={styles.accountHeader}>
                 <ThemedText style={styles.accountTitle}>Deriv Trading Account</ThemedText>
-                <TouchableOpacity onPress={handleDisconnect}>
+                <TouchableOpacity onPress={() => setShowDisconnectModal(true)}>
                   <ThemedText style={styles.disconnectText}>Disconnect</ThemedText>
                 </TouchableOpacity>
               </View>
@@ -353,61 +619,44 @@ function HomeScreen() {
         </View>
 
         <Modal
-          visible={showGuide}
-          animationType="slide"
+          visible={showDisconnectModal}
+          animationType="fade"
           transparent={true}
+          onRequestClose={() => setShowDisconnectModal(false)}
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <ThemedText style={styles.modalTitle}>Connect Deriv Account</ThemedText>
-              
-              <View style={styles.guideContainer}>
-                <ThemedText style={styles.guideTitle}>Required API Token Permissions:</ThemedText>
-                <View style={styles.permissionsList}>
-                  <View style={styles.permissionItem}>
-                    <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-                    <ThemedText style={styles.permissionText}>Read - View account balance & history</ThemedText>
-                  </View>
-                  <View style={styles.permissionItem}>
-                    <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-                    <ThemedText style={styles.permissionText}>Trade - Place trades & orders</ThemedText>
-                  </View>
-                  <View style={styles.permissionItem}>
-                    <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-                    <ThemedText style={styles.permissionText}>Payments - View account limits</ThemedText>
-                  </View>
-                  <View style={styles.permissionItem}>
-                    <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-                    <ThemedText style={styles.permissionText}>Admin - Manage account settings</ThemedText>
-                  </View>
-                </View>
-                
+              <View style={styles.modalHeader}>
+                <ThemedText style={styles.modalTitle}>Disconnect Account</ThemedText>
                 <TouchableOpacity 
-                  style={styles.createKeyButton}
-                  onPress={() => Linking.openURL(CREATE_API_KEY_URL)}
+                  onPress={() => setShowDisconnectModal(false)}
+                  style={styles.closeButton}
                 >
-                  <ThemedText style={styles.createKeyText}>Create API Key with All Permissions</ThemedText>
+                  <Ionicons name="close" size={24} color="#64748B" />
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.inputContainer}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Paste your API key here"
-                  value={apiKey}
-                  onChangeText={setApiKey}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  editable={!loading}
-                />
+              <View style={styles.modalBody}>
+                <View style={styles.warningIcon}>
+                  <Ionicons name="warning" size={48} color="#F59E0B" />
+                  </View>
+                <ThemedText style={styles.disconnectWarning}>
+                  Are you sure you want to disconnect your Deriv account? You'll need to reconnect to access your trading features.
+                </ThemedText>
+                </View>
+                
+              <View style={styles.modalFooter}>
                 <TouchableOpacity 
-                  style={[styles.connectButton, loading && styles.buttonDisabled]}
-                  onPress={handleApiKeySubmit}
-                  disabled={loading}
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={() => setShowDisconnectModal(false)}
                 >
-                  <ThemedText style={styles.connectButtonText}>
-                    {loading ? 'Connecting...' : 'Connect'}
-                  </ThemedText>
+                  <ThemedText style={styles.cancelButtonText}>Cancel</ThemedText>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.disconnectModalButton]}
+                  onPress={handleDisconnect}
+                >
+                  <ThemedText style={styles.disconnectModalButtonText}>Disconnect</ThemedText>
                 </TouchableOpacity>
               </View>
             </View>
@@ -443,10 +692,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1E293B',
   },
-  settingsButton: {
+  headerButton: {
     padding: 8,
     borderRadius: 8,
-    backgroundColor: '#F1F5F9',
   },
   accountContainer: {
     flex: 1,
@@ -474,75 +722,169 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 16,
   },
   modalContent: {
-    backgroundColor: 'white',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    padding: 24,
-    width: '90%',
+    width: '100%',
     maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
   },
   modalTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1a1a1a',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  guideContainer: {
-    marginBottom: 24,
-  },
-  guideTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '600',
-    color: '#1a1a1a',
-    marginBottom: 12,
+    color: '#1E293B',
   },
-  guideSteps: {
-    gap: 8,
-    marginBottom: 16,
+  closeButton: {
+    padding: 8,
   },
-  guideText: {
-    fontSize: 16,
-    color: '#666666',
-  },
-  createKeyButton: {
-    backgroundColor: '#FF444F',
-    padding: 12,
-    borderRadius: 8,
+  modalBody: {
+    padding: 24,
     alignItems: 'center',
   },
-  createKeyText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
+  warningIcon: {
+    marginBottom: 16,
   },
-  inputContainer: {
+  disconnectWarning: {
+    fontSize: 16,
+    color: '#334155',
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    padding: 16,
     gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
   },
-  input: {
-    height: 50,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    backgroundColor: '#f8f8f8',
-  },
-  connectButton: {
-    height: 50,
-    backgroundColor: '#007AFF',
+  modalButton: {
+    flex: 1,
+    height: 44,
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  connectButtonText: {
-    color: 'white',
+  cancelButton: {
+    backgroundColor: '#F1F5F9',
+  },
+  cancelButtonText: {
+    color: '#64748B',
     fontSize: 16,
     fontWeight: '600',
   },
-  buttonDisabled: {
-    opacity: 0.7,
+  disconnectModalButton: {
+    backgroundColor: '#EF4444',
+  },
+  disconnectModalButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  welcomeCardContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  welcomeCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 32,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  welcomeIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255, 68, 79, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  welcomeDescription: {
+    fontSize: 16,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 32,
+    maxWidth: 300,
+  },
+  oauthCard: {
+    width: '100%',
+    padding: 24,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  oauthTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginBottom: 16,
+  },
+  oauthDescription: {
+    fontSize: 16,
+    color: '#64748B',
+    marginBottom: 24,
+  },
+  oauthButton: {
+    width: '100%',
+    height: 44,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FF444F',
+  },
+  oauthButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+    width: '100%',
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E2E8F0',
+  },
+  dividerText: {
+    color: '#64748B',
+    paddingHorizontal: 16,
+    fontSize: 14,
+  },
+  joinButton: {
+    backgroundColor: '#0891B2',
   },
   accountCard: {
     backgroundColor: '#FFFFFF',
@@ -683,24 +1025,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  permissionsList: {
-    marginBottom: 16,
-    backgroundColor: '#F8FAFC',
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+  apiKeyLink: {
+    marginTop: 24,
+    padding: 8,
   },
-  permissionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-    gap: 8,
-  },
-  permissionText: {
+  apiKeyLinkText: {
+    color: '#64748B',
     fontSize: 14,
-    color: '#334155',
-    flex: 1,
+    fontWeight: '500',
+    textDecorationLine: 'underline',
   },
 });
 

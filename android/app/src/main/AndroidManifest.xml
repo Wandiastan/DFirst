@@ -24,7 +24,7 @@
         <action android:name="android.intent.action.VIEW"/>
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:scheme="dfirsttrader"/>
+        <data android:scheme="run dfirsttrader"/>
         <data android:scheme="com.anonymous.DFirst"/>
         <data android:scheme="exp+dfirst"/>
       </intent-filter>

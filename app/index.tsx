@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { StyleSheet, TextInput, TouchableOpacity, View, Alert } from 'react-native';
+import { StyleSheet, TextInput, TouchableOpacity, View, Alert, Animated as RNAnimated } from 'react-native';
 import { Link, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, withSpring, Easing } from 'react-native-reanimated';
-import { loginWithEmail } from './firebase.config';
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, withSpring, Easing, FadeIn, FadeOut, SlideInDown } from 'react-native-reanimated';
+import { loginWithEmail, resetPassword } from './firebase.config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ThemedText } from '@/components/ThemedText';
@@ -15,9 +15,13 @@ function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [hasEmail, setHasEmail] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
   const rotation = useSharedValue(0);
   const emailPosition = useSharedValue(0);
   const emailScale = useSharedValue(1);
+  const [isResetMode, setIsResetMode] = useState(false);
 
   useEffect(() => {
     loadSavedEmail();
@@ -30,6 +34,12 @@ function LoginScreen() {
       2
     );
   }, []);
+
+  useEffect(() => {
+    if (isResetMode && email) {
+      setResetEmail(email);
+    }
+  }, [isResetMode]);
 
   const loadSavedEmail = async () => {
     try {
@@ -92,60 +102,159 @@ function LoginScreen() {
     }
   };
 
+  const handleResetPassword = async () => {
+    if (resetLoading) return;
+    if (!resetEmail) {
+      Alert.alert('Error', 'Please enter your email address');
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      await resetPassword(resetEmail);
+      Alert.alert(
+        'Success',
+        'Password reset instructions have been sent to your email',
+        [{ text: 'OK', onPress: () => {
+          setIsResetMode(false);
+          setResetEmail('');
+        }}]
+      );
+    } catch (error: any) {
+      console.error('Password reset error:', error);
+      Alert.alert(
+        'Reset Error',
+        error.message || 'An error occurred while sending reset instructions'
+      );
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  const toggleResetMode = () => {
+    if (isResetMode) {
+      setIsResetMode(false);
+      setResetEmail('');
+    } else {
+      setIsResetMode(true);
+      if (email) setResetEmail(email);
+    }
+  };
+
   return (
     <SafeAreaView edges={['top']} style={styles.safeArea}>
       <View style={styles.container}>
         <View style={styles.header}>
           <View style={styles.titleContainer}>
-            <ThemedText style={styles.title}>Welcome Back</ThemedText>
-            <Animated.Text style={[styles.waveEmoji, animatedStyle]}>👋</Animated.Text>
+            <ThemedText style={styles.title}>
+              {isResetMode ? 'Reset Password' : 'Welcome Back'}
+            </ThemedText>
+            {!isResetMode && (
+              <Animated.Text style={[styles.waveEmoji, animatedStyle]}>👋</Animated.Text>
+            )}
           </View>
-          <ThemedText style={styles.subtitle}>Sign in to continue</ThemedText>
+          <ThemedText style={styles.subtitle}>
+            {isResetMode 
+              ? 'Enter your email to receive reset instructions' 
+              : 'Sign in to continue'}
+          </ThemedText>
         </View>
 
-        <View style={styles.form}>
-          <View style={styles.inputContainer}>
-            <Animated.Text style={[styles.floatingLabel, animatedEmailStyle]}>
-              Email
-            </Animated.Text>
+        {isResetMode ? (
+          <Animated.View 
+            entering={FadeIn.duration(300)}
+            exiting={FadeOut.duration(300)}
+            style={styles.resetForm}
+          >
+            <View style={styles.modernInputContainer}>
+              <TextInput
+                style={styles.modernInput}
+                placeholder="Email Address"
+                value={resetEmail}
+                onChangeText={setResetEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                editable={!resetLoading}
+                autoFocus
+              />
+              <View style={styles.inputUnderline} />
+            </View>
+            
+            <View style={styles.resetButtons}>
+              <TouchableOpacity 
+                style={[styles.modernButton, styles.resetButton, resetLoading && styles.buttonDisabled]}
+                onPress={handleResetPassword}
+                disabled={resetLoading}
+              >
+                <ThemedText style={styles.modernButtonText}>
+                  {resetLoading ? 'Sending...' : 'Reset Password'}
+                </ThemedText>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.modernButton, styles.backButton]}
+                onPress={toggleResetMode}
+                disabled={resetLoading}
+              >
+                <ThemedText style={styles.backButtonText}>Back to Login</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        ) : (
+          <Animated.View 
+            entering={SlideInDown.duration(400)}
+            style={styles.form}
+          >
+            <View style={styles.inputContainer}>
+              <Animated.Text style={[styles.floatingLabel, animatedEmailStyle]}>
+                Email
+              </Animated.Text>
+              <TextInput
+                style={styles.input}
+                placeholder={hasEmail ? '' : 'Email'}
+                value={email}
+                onChangeText={handleEmailChange}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                editable={!loading}
+              />
+            </View>
             <TextInput
               style={styles.input}
-              placeholder={hasEmail ? '' : 'Email'}
-              value={email}
-              onChangeText={handleEmailChange}
-              keyboardType="email-address"
-              autoCapitalize="none"
+              placeholder="Password"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
               editable={!loading}
             />
-          </View>
-          <TextInput
-            style={styles.input}
-            placeholder="Password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            editable={!loading}
-          />
-          
-          <TouchableOpacity 
-            style={[styles.button, loading && styles.buttonDisabled]} 
-            onPress={handleLogin}
-            disabled={loading}
-          >
-            <ThemedText style={styles.buttonText}>
-              {loading ? 'Signing in...' : 'Sign In'}
-            </ThemedText>
-          </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.button, loading && styles.buttonDisabled]} 
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              <ThemedText style={styles.buttonText}>
+                {loading ? 'Signing in...' : 'Sign In'}
+              </ThemedText>
+            </TouchableOpacity>
 
-          <View style={styles.footer}>
-            <ThemedText style={styles.footerText}>Don't have an account? </ThemedText>
-            <Link href="/explore" asChild>
-              <TouchableOpacity>
-                <ThemedText style={styles.link}>Sign Up</ThemedText>
-              </TouchableOpacity>
-            </Link>
-          </View>
-        </View>
+            <TouchableOpacity 
+              style={styles.forgotPasswordButton}
+              onPress={toggleResetMode}
+            >
+              <ThemedText style={styles.forgotPasswordText}>Forgot Password?</ThemedText>
+            </TouchableOpacity>
+
+            <View style={styles.footer}>
+              <ThemedText style={styles.footerText}>Don't have an account? </ThemedText>
+              <Link href="/explore" asChild>
+                <TouchableOpacity>
+                  <ThemedText style={styles.link}>Sign Up</ThemedText>
+                </TouchableOpacity>
+              </Link>
+            </View>
+          </Animated.View>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -244,6 +353,68 @@ const styles = StyleSheet.create({
     color: '#007AFF',
     fontWeight: '600',
   },
+  forgotPasswordButton: {
+    alignSelf: 'center',
+    marginTop: 16,
+    padding: 8,
+  },
+  forgotPasswordText: {
+    color: '#007AFF',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  resetForm: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingBottom: 100,
+    gap: 24,
+  },
+  modernInputContainer: {
+    marginBottom: 24,
+  },
+  modernInput: {
+    height: 56,
+    fontSize: 18,
+    color: '#1a1a1a',
+    paddingHorizontal: 0,
+    borderBottomWidth: 2,
+    borderBottomColor: '#E2E8F0',
+  },
+  inputUnderline: {
+    height: 2,
+    backgroundColor: '#007AFF',
+    width: '0%',
+  },
+  resetButtons: {
+    gap: 16,
+  },
+  modernButton: {
+    height: 56,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  resetButton: {
+    backgroundColor: '#007AFF',
+  },
+  backButton: {
+    backgroundColor: '#F1F5F9',
+  },
+  modernButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  backButtonText: {
+    color: '#64748B',
+    fontSize: 16,
+    fontWeight: '600',
+  }
 });
 
 export default LoginScreen;

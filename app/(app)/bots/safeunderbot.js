@@ -1,4 +1,4 @@
-class EvenOddBot {
+class SafeUnderBot {
     constructor(ws, config) {
         this.ws = ws;
         this.config = config;
@@ -9,12 +9,13 @@ class EvenOddBot {
         this.wins = 0;
         this.consecutiveLosses = 0;
         this.startTime = null;
-        this.lastDigits = [];
+        this.lastDigit = null;
         this.tradeHistory = [];
         this.onUpdate = null;
-        this.lastTradeType = null;
-        this.patternWindow = 10;
-        this.switchThreshold = 0.6;
+        this.digitHistory = []; // Store recent digits for pattern analysis
+        this.currentBarrier = 9; // Fixed barrier at 9 for maximum safety
+        this.minConsecutiveNines = 2; // Minimum consecutive nines before trading
+        this.consecutiveNines = 0;
     }
 
     setUpdateCallback(callback) {
@@ -32,7 +33,7 @@ class EvenOddBot {
         this.startTime = new Date();
         this.currentStake = this.config.initialStake;
         await this.subscribeToTicks();
-        this.analyzePatternsAndTrade();
+        this.executeTrade();
     }
 
     stop() {
@@ -42,17 +43,19 @@ class EvenOddBot {
 
     async subscribeToTicks() {
         try {
+            // Subscribe to ticks for Volatility 10 (less volatile)
             this.ws.send(JSON.stringify({
-                ticks: "R_75",
+                ticks: "R_10",
                 subscribe: 1
             }));
 
+            // Subscribe to contract updates
             this.ws.send(JSON.stringify({
                 proposal_open_contract: 1,
                 subscribe: 1
             }));
 
-            console.log('Subscribed to R_75 ticks and contract updates');
+            console.log('Subscribed to R_10 ticks and contract updates');
         } catch (error) {
             console.error('Error subscribing:', error);
         }
@@ -72,28 +75,26 @@ class EvenOddBot {
             this.currentStake = this.roundStake(this.config.initialStake);
         } else {
             this.consecutiveLosses++;
-            if (this.consecutiveLosses <= 2) {
-                this.currentStake = this.roundStake(this.currentStake * this.config.martingaleMultiplier);
-            } else {
-                this.currentStake = this.roundStake(this.currentStake * (this.config.martingaleMultiplier + 0.1));
-            }
+            this.currentStake = this.roundStake(this.currentStake * this.config.martingaleMultiplier);
         }
 
         this.totalTrades++;
         this.totalProfit += tradeResult.profit;
 
+        // Add to trade history
         this.tradeHistory.unshift({
             time: new Date(),
             stake: tradeResult.stake,
             result: tradeResult.win ? 'win' : 'loss',
-            profit: tradeResult.profit,
-            type: this.lastTradeType ? 'EVEN' : 'ODD'
+            profit: tradeResult.profit
         });
 
+        // Keep only last 50 trades in history
         if (this.tradeHistory.length > 50) {
             this.tradeHistory.pop();
         }
 
+        // Update dashboard
         if (this.onUpdate) {
             this.onUpdate({
                 currentStake: this.currentStake,
@@ -107,6 +108,7 @@ class EvenOddBot {
             });
         }
 
+        // Check stop conditions
         if (this.totalProfit <= -this.config.stopLoss || this.totalProfit >= this.config.takeProfit) {
             this.stop();
         }
@@ -121,50 +123,33 @@ class EvenOddBot {
         return `${hours}:${minutes}:${seconds}`;
     }
 
-    analyzePatternsAndTrade() {
+    analyzePattern() {
+        // Always trade, no pattern analysis
+        return true;
+    }
+
+    async executeTrade() {
         if (!this.isRunning) return;
 
-        const evenCount = this.lastDigits.filter(d => d % 2 === 0).length;
-        const oddCount = this.lastDigits.length - evenCount;
-        const evenProbability = evenCount / this.lastDigits.length;
-
-        // Analyze recent pattern strength (last 5 digits)
-        const recentPattern = this.lastDigits.slice(0, 5);
-        const recentEvenCount = recentPattern.filter(d => d % 2 === 0).length;
-        const recentOddCount = recentPattern.length - recentEvenCount;
-
-        // Calculate trend strength
-        const trendStrength = Math.abs(evenProbability - 0.5) * 2;
-        
-        let shouldTradeEven = false;
-
-        if (trendStrength > 0.3) {
-            shouldTradeEven = evenProbability <= 0.5;
-        } else {
-            const recentTrend = recentEvenCount / recentPattern.length;
-            shouldTradeEven = recentTrend < 0.5;
+        // Analyze pattern to determine if we should trade
+        const shouldTrade = this.analyzePattern();
+        if (!shouldTrade) {
+            setTimeout(() => this.executeTrade(), 1000);
+            return;
         }
 
-        if (this.lastTradeType !== null) {
-            if (this.consecutiveLosses === 0) {
-                shouldTradeEven = this.lastTradeType;
-            } else if (this.consecutiveLosses >= 2) {
-                shouldTradeEven = !this.lastTradeType;
-            }
-        }
-
-        this.lastTradeType = shouldTradeEven;
-        
         try {
+            // Send proposal request for digit under contract
             this.ws.send(JSON.stringify({
                 proposal: 1,
                 amount: this.currentStake.toString(),
                 basis: "stake",
-                contract_type: shouldTradeEven ? "DIGITEVEN" : "DIGITODD",
+                contract_type: "DIGITUNDER",
                 currency: "USD",
                 duration: 1,
                 duration_unit: "t",
-                symbol: "R_75"
+                symbol: "R_10",
+                barrier: this.currentBarrier.toString()
             }));
         } catch (error) {
             console.error('Trade execution error:', error);
@@ -195,11 +180,15 @@ class EvenOddBot {
             else if (data.msg_type === 'tick') {
                 if (data.tick && data.tick.quote) {
                     const digit = parseInt(data.tick.quote.toString().slice(-1));
-                    this.lastDigits.unshift(digit);
-                    if (this.lastDigits.length > this.patternWindow) {
-                        this.lastDigits.pop();
+                    this.lastDigit = digit;
+                    
+                    // Update digit history for pattern analysis
+                    this.digitHistory.unshift(digit);
+                    if (this.digitHistory.length > 10) {
+                        this.digitHistory.pop();
                     }
-                    console.log('Current digit:', digit, 'Pattern:', this.lastDigits.slice(0, 5));
+                    
+                    console.log('Current digit:', digit, 'Consecutive nines:', this.consecutiveNines);
                 }
             }
             else if (data.msg_type === 'proposal_open_contract') {
@@ -215,9 +204,10 @@ class EvenOddBot {
                         win: win
                     });
 
+                    // Execute next trade after a short delay
                     setTimeout(() => {
                         if (this.isRunning) {
-                            this.analyzePatternsAndTrade();
+                            this.executeTrade();
                         }
                     }, 1000);
                 }
@@ -229,5 +219,5 @@ class EvenOddBot {
 }
 
 // Export the bot class
-module.exports = EvenOddBot;
-export default EvenOddBot; 
+module.exports = SafeUnderBot;
+export default SafeUnderBot; 

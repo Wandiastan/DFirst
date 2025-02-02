@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "dfirsttrader",
+    "scheme": "run dfirsttrader",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "plugins": [
@@ -13,7 +13,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/splash.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
@@ -22,8 +22,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.DFirst",
-      "associatedDomains": ["applinks:autodrv-oauth.onrender.com"]
+      "bundleIdentifier": "com.anonymous.DFirst"
     },
     "android": {
       "adaptiveIcon": {

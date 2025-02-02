@@ -1,50 +1,190 @@
-# Welcome to your Expo app 👋
+# DFirst Trading Bot Platform
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A sophisticated trading bot platform for Deriv.com featuring multiple specialized bots with advanced trading strategies.
 
-## Get started
+## 🔥 Latest Updates
 
-1. Install dependencies
+### Security Improvements
+- Implemented secure balance confirmation system
+- Added environment-based configuration
+- Improved API key and token management
+- Enhanced WebSocket connection security
 
+### Feature Updates
+- Smart balance-based profit targeting (1% of account balance)
+- Modern balance badge in bot configuration
+- Improved connection management
+- Enhanced profit recommendation system
+
+## 🤖 Available Bots
+
+### Conservative Bots (Low Risk)
+1. **Safe Over Bot** (Rating: 4.7/5.0)
+   - Conservative trading on digits over 0
+   - Low-risk pattern analysis
+   - Best for beginners
+
+2. **Safe Under Bot** (Rating: 4.7/5.0)
+   - Conservative trading on digits under 9
+   - Stable pattern recognition
+   - Ideal for risk-averse traders
+
+### Advanced Pattern Bots
+3. **Metro Differ Bot** (Rating: 4.6/5.0)
+   - Random digit pattern analysis
+   - Smart recovery system
+   - Mixed strategy approach
+
+4. **Alien Rise Fall Bot** (Rating: 4.8/5.0)
+   - Advanced trend confirmation
+   - Adaptive trading logic
+   - Technical analysis based
+
+5. **Smart Even Bot** (Rating: 4.8/5.0)
+   - Pattern-based even/odd trading
+   - Intelligent streak detection
+   - Mathematical probability analysis
+
+6. **Smart Volatility Bot** (Rating: 4.7/5.0)
+   - Dynamic timeframe analysis
+   - Volatility-based trading
+   - Advanced risk management
+
+7. **Russian Odds Bot** (Rating: 4.6/5.0)
+   - Fast 5-tick pattern analysis
+   - Quick recovery system
+   - Relaxed entry conditions
+
+### High Risk Bots
+8. **High Risk Over Bot** (Rating: 4.4/5.0)
+   - Aggressive over trading
+   - Higher potential returns
+   - Dynamic barrier adjustment
+
+9. **High Risk Under Bot** (Rating: 4.3/5.0)
+   - Aggressive under trading
+   - Maximum payout targeting
+   - Advanced stake management
+
+## 🛡️ Security Features
+
+### API Key Management
+- Secure token storage
+- OAuth integration
+- Environment-based configuration
+- Automatic token rotation
+
+### Connection Security
+- Secure WebSocket handling
+- Automatic cleanup on disconnect
+- Connection state verification
+- Smart reconnection logic
+
+## 💹 Trading Features
+
+### Balance Management
+- Real-time balance confirmation
+- Dynamic stake adjustment
+- Smart profit targeting (1% of balance)
+- Automatic risk assessment
+
+### Trade Management
+- Intelligent entry point detection
+- Pattern-based trade execution
+- Advanced recovery strategies
+- Dynamic stake adjustment
+
+### Risk Management
+- Stop loss protection
+- Take profit optimization
+- Martingale configuration
+- Streak detection and handling
+
+## 🚀 Getting Started
+
+1. Clone the repository
+2. Create `.env` file with required credentials
+3. Install dependencies:
    ```bash
    npm install
    ```
-
-2. Start the app
-
+4. Start the application:
    ```bash
-    npx expo start
+   npm start
    ```
 
-In the output, you'll find options to open the app in a
+## 🔒 Environment Configuration
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+Create a `.env` file with the following:
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```env
+DERIV_APP_ID=your_app_id
+DERIV_WS_URL=your_ws_url
+FIREBASE_API_KEY=your_api_key
+FIREBASE_AUTH_DOMAIN=your_domain
+FIREBASE_PROJECT_ID=your_project_id
+FIREBASE_STORAGE_BUCKET=your_bucket
+FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+FIREBASE_APP_ID=your_app_id
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## 📝 Important Notes
 
-## Learn more
+- Never trade with money you cannot afford to lose
+- Always start with the conservative bots first
+- Monitor your trades regularly
+- Use proper risk management
+- Keep your API keys secure
 
-To learn more about developing your project with Expo, look at the following resources:
+## 🔄 Recovery Strategies
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Each bot implements specific recovery strategies:
+- Pattern-based recovery
+- Martingale stake adjustment
+- Trend confirmation requirements
+- Dynamic timeframe adaptation
 
-## Join the community
+## 🛠️ Maintenance
 
-Join our community of developers creating universal apps.
+Regular maintenance tasks:
+- Monitor API key rotation
+- Check connection stability
+- Verify balance confirmation
+- Update security configurations
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## ⚠️ Risk Warning
+
+Trading involves significant risk. Always:
+- Start with minimum stakes
+- Use conservative bots first
+- Monitor bot performance
+- Implement proper stop losses
+- Never risk more than you can afford
+
+## 🔐 Security Best Practices
+
+1. Keep API keys secure
+2. Use environment variables
+3. Regular security updates
+4. Monitor account activity
+5. Enable 2FA on your account
+
+## 📊 Performance Monitoring
+
+- Real-time statistics
+- Trade history tracking
+- Win rate calculation
+- Profit/loss monitoring
+- Pattern analysis data
+
+## 🤝 Support
+
+For support:
+1. Check documentation
+2. Review trading guides
+3. Monitor bot performance
+4. Contact support team
+
+## 📜 License
+
+Copyright © 2024 DFirst Trading Bot Platform

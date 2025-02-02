@@ -1,4 +1,4 @@
-class EvenBot {
+class MetroDiffer {
     constructor(ws, config) {
         this.ws = ws;
         this.config = config;
@@ -12,7 +12,8 @@ class EvenBot {
         this.lastDigit = null;
         this.tradeHistory = [];
         this.onUpdate = null;
-        this.digitHistory = [];
+        this.digitFrequency = Array(10).fill(0); // Track frequency of each digit (0-9)
+        this.lastResult = 'win'; // Track last trade result for strategy switching
     }
 
     setUpdateCallback(callback) {
@@ -29,6 +30,7 @@ class EvenBot {
         this.isRunning = true;
         this.startTime = new Date();
         this.currentStake = this.config.initialStake;
+        this.digitFrequency = Array(10).fill(0); // Reset digit frequency
         await this.subscribeToTicks();
         this.executeTrade();
     }
@@ -40,17 +42,19 @@ class EvenBot {
 
     async subscribeToTicks() {
         try {
+            // Subscribe to ticks for R_25
             this.ws.send(JSON.stringify({
-                ticks: "R_10",
+                ticks: "R_25",
                 subscribe: 1
             }));
 
+            // Subscribe to contract updates
             this.ws.send(JSON.stringify({
                 proposal_open_contract: 1,
                 subscribe: 1
             }));
 
-            console.log('Subscribed to R_10 ticks and contract updates');
+            console.log('Subscribed to R_25 ticks and contract updates');
         } catch (error) {
             console.error('Error subscribing:', error);
         }
@@ -68,14 +72,17 @@ class EvenBot {
             this.wins++;
             this.consecutiveLosses = 0;
             this.currentStake = this.roundStake(this.config.initialStake);
+            this.lastResult = 'win';
         } else {
             this.consecutiveLosses++;
             this.currentStake = this.roundStake(this.currentStake * this.config.martingaleMultiplier);
+            this.lastResult = 'loss';
         }
 
         this.totalTrades++;
         this.totalProfit += tradeResult.profit;
 
+        // Add to trade history
         this.tradeHistory.unshift({
             time: new Date(),
             stake: tradeResult.stake,
@@ -83,10 +90,12 @@ class EvenBot {
             profit: tradeResult.profit
         });
 
+        // Keep only last 50 trades in history
         if (this.tradeHistory.length > 50) {
             this.tradeHistory.pop();
         }
 
+        // Update dashboard
         if (this.onUpdate) {
             this.onUpdate({
                 currentStake: this.currentStake,
@@ -100,6 +109,7 @@ class EvenBot {
             });
         }
 
+        // Check stop conditions
         if (this.totalProfit <= -this.config.stopLoss || this.totalProfit >= this.config.takeProfit) {
             this.stop();
         }
@@ -114,46 +124,51 @@ class EvenBot {
         return `${hours}:${minutes}:${seconds}`;
     }
 
-    analyzePattern() {
-        if (this.digitHistory.length < 5) return true;
-
-        // Count even and odd occurrences in recent history
-        const evenCount = this.digitHistory.filter(d => d % 2 === 0).length;
-        const oddCount = this.digitHistory.length - evenCount;
+    getLeastFrequentDigit() {
+        let minFreq = Math.min(...this.digitFrequency);
+        let leastFrequentDigits = this.digitFrequency
+            .map((freq, digit) => ({ freq, digit }))
+            .filter(item => item.freq === minFreq)
+            .map(item => item.digit);
         
-        // Calculate probabilities
-        const evenProb = evenCount / this.digitHistory.length;
-        const oddProb = oddCount / this.digitHistory.length;
+        // If multiple digits have the same minimum frequency, choose randomly among them
+        return leastFrequentDigits[Math.floor(Math.random() * leastFrequentDigits.length)];
+    }
 
-        // Log pattern analysis
-        console.log('Pattern Analysis:', {
-            evenCount,
-            oddCount,
-            evenProbability: evenProb,
-            oddProbability: oddProb,
-            lastDigit: this.lastDigit
-        });
-
-        // Always return true since we're only trading even
-        return true;
+    getRandomDigit() {
+        return Math.floor(Math.random() * 10);
     }
 
     async executeTrade() {
         if (!this.isRunning) return;
 
-        // Analyze pattern but always trade even
-        this.analyzePattern();
+        // Update digit frequency with the last digit
+        if (this.lastDigit !== null) {
+            this.digitFrequency[this.lastDigit]++;
+        }
+
+        // Select barrier based on strategy
+        let selectedDigit;
+        if (this.lastResult === 'loss') {
+            // After a loss, use the least frequent digit
+            selectedDigit = this.getLeastFrequentDigit();
+        } else {
+            // After a win or at start, use random digit
+            selectedDigit = this.getRandomDigit();
+        }
 
         try {
+            // Send proposal request
             this.ws.send(JSON.stringify({
                 proposal: 1,
                 amount: this.currentStake.toString(),
                 basis: "stake",
-                contract_type: "DIGITEVEN",
+                contract_type: "DIGITDIFF",
                 currency: "USD",
                 duration: 1,
                 duration_unit: "t",
-                symbol: "R_10"
+                symbol: "R_25",
+                barrier: selectedDigit.toString()
             }));
         } catch (error) {
             console.error('Trade execution error:', error);
@@ -164,11 +179,9 @@ class EvenBot {
     handleMessage(message) {
         try {
             const data = JSON.parse(typeof message === 'string' ? message : message.toString());
-            console.log('Received message:', data.msg_type);
 
             if (data.msg_type === 'proposal') {
                 if (this.isRunning && data.proposal) {
-                    console.log('Buying contract with proposal:', data.proposal.id);
                     this.ws.send(JSON.stringify({
                         buy: data.proposal.id,
                         price: data.proposal.ask_price
@@ -177,27 +190,17 @@ class EvenBot {
             }
             else if (data.msg_type === 'buy') {
                 if (data.buy) {
-                    console.log('Contract purchased:', data.buy.contract_id);
                     this.currentContractId = data.buy.contract_id;
                 }
             }
             else if (data.msg_type === 'tick') {
                 if (data.tick && data.tick.quote) {
-                    const digit = parseInt(data.tick.quote.toString().slice(-1));
-                    this.lastDigit = digit;
-                    
-                    this.digitHistory.unshift(digit);
-                    if (this.digitHistory.length > 10) {
-                        this.digitHistory.pop();
-                    }
-                    
-                    console.log('Current digit:', digit, 'Is Even:', digit % 2 === 0);
+                    this.lastDigit = parseInt(data.tick.quote.toString().slice(-1));
                 }
             }
             else if (data.msg_type === 'proposal_open_contract') {
                 const contract = data.proposal_open_contract;
                 if (contract && contract.is_sold) {
-                    console.log('Contract result:', contract.status);
                     const profit = parseFloat(contract.profit);
                     const win = profit > 0;
 
@@ -207,6 +210,7 @@ class EvenBot {
                         win: win
                     });
 
+                    // Add small delay before next trade
                     setTimeout(() => {
                         if (this.isRunning) {
                             this.executeTrade();
@@ -221,5 +225,5 @@ class EvenBot {
 }
 
 // Export the bot class
-module.exports = EvenBot;
-export default EvenBot; 
+module.exports = MetroDiffer;
+export default MetroDiffer; 

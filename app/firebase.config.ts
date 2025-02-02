@@ -7,7 +7,8 @@ import {
   updateProfile,
   signOut,
   onAuthStateChanged,
-  User
+  User,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -69,13 +70,25 @@ export const onAuthChanged = (callback: (user: User | null) => void) =>
 
 export const getCurrentUser = () => auth.currentUser;
 
+export const resetPassword = async (email: string) => {
+  const trimmedEmail = email.trim();
+  if (!trimmedEmail) {
+    throw new Error('Email is required');
+  }
+  if (!isValidEmail(trimmedEmail)) {
+    throw new Error('Please enter a valid email address');
+  }
+  return sendPasswordResetEmail(auth, trimmedEmail);
+};
+
 const firebaseAuth = {
   auth,
   loginWithEmail,
   createAccount,
   logout,
   onAuthChanged,
-  getCurrentUser
+  getCurrentUser,
+  resetPassword
 };
 
 export default firebaseAuth; 

@@ -1,4 +1,4 @@
-class HigherLowerBot {
+class SafeOverBot {
     constructor(ws, config) {
         this.ws = ws;
         this.config = config;
@@ -9,15 +9,13 @@ class HigherLowerBot {
         this.wins = 0;
         this.consecutiveLosses = 0;
         this.startTime = null;
+        this.lastDigit = null;
         this.tradeHistory = [];
         this.onUpdate = null;
-        this.priceHistory = [];
-        this.currentContractType = null;
-        this.hasOpenContract = false;
-        this.lastPrice = null;
-        this.trendWindow = 10; // Window size for trend analysis
-        this.priceMovements = []; // Track recent price movements
-        this.movingAverages = []; // Store moving averages for analysis
+        this.digitHistory = []; // Store recent digits for pattern analysis
+        this.currentBarrier = 0; // Fixed barrier at 0 for maximum safety
+        this.minConsecutiveZeros = 2; // Minimum consecutive zeros before trading
+        this.consecutiveZeros = 0;
     }
 
     setUpdateCallback(callback) {
@@ -45,17 +43,19 @@ class HigherLowerBot {
 
     async subscribeToTicks() {
         try {
+            // Subscribe to ticks for Volatility 10 (less volatile)
             this.ws.send(JSON.stringify({
                 ticks: "R_10",
                 subscribe: 1
             }));
 
+            // Subscribe to contract updates
             this.ws.send(JSON.stringify({
                 proposal_open_contract: 1,
                 subscribe: 1
             }));
 
-            console.log('Subscribed to ticks and contract updates');
+            console.log('Subscribed to R_10 ticks and contract updates');
         } catch (error) {
             console.error('Error subscribing:', error);
         }
@@ -66,15 +66,6 @@ class HigherLowerBot {
             forget_all: ["ticks"]
         };
         this.ws.send(JSON.stringify(request));
-    }
-
-    getRunningTime() {
-        if (!this.startTime) return '00:00:00';
-        const diff = Math.floor((new Date() - this.startTime) / 1000);
-        const hours = Math.floor(diff / 3600).toString().padStart(2, '0');
-        const minutes = Math.floor((diff % 3600) / 60).toString().padStart(2, '0');
-        const seconds = (diff % 60).toString().padStart(2, '0');
-        return `${hours}:${minutes}:${seconds}`;
     }
 
     updateStats(tradeResult) {
@@ -90,18 +81,20 @@ class HigherLowerBot {
         this.totalTrades++;
         this.totalProfit += tradeResult.profit;
 
+        // Add to trade history
         this.tradeHistory.unshift({
             time: new Date(),
             stake: tradeResult.stake,
             result: tradeResult.win ? 'win' : 'loss',
-            profit: tradeResult.profit,
-            type: this.currentContractType
+            profit: tradeResult.profit
         });
 
+        // Keep only last 50 trades in history
         if (this.tradeHistory.length > 50) {
             this.tradeHistory.pop();
         }
 
+        // Update dashboard
         if (this.onUpdate) {
             this.onUpdate({
                 currentStake: this.currentStake,
@@ -115,83 +108,48 @@ class HigherLowerBot {
             });
         }
 
+        // Check stop conditions
         if (this.totalProfit <= -this.config.stopLoss || this.totalProfit >= this.config.takeProfit) {
             this.stop();
         }
     }
 
-    calculateMA(prices, period) {
-        if (prices.length < period) return null;
-        const sum = prices.slice(0, period).reduce((a, b) => a + b, 0);
-        return sum / period;
+    getRunningTime() {
+        if (!this.startTime) return '00:00:00';
+        const diff = Math.floor((new Date() - this.startTime) / 1000);
+        const hours = Math.floor(diff / 3600).toString().padStart(2, '0');
+        const minutes = Math.floor((diff % 3600) / 60).toString().padStart(2, '0');
+        const seconds = (diff % 60).toString().padStart(2, '0');
+        return `${hours}:${minutes}:${seconds}`;
     }
 
-    analyzeMarket() {
-        if (this.priceHistory.length < this.trendWindow) {
-            return null;
-        }
-
-        // Calculate short and long term moving averages
-        const shortMA = this.calculateMA(this.priceHistory, 5);
-        const longMA = this.calculateMA(this.priceHistory, 10);
-
-        if (!shortMA || !longMA) {
-            return null;
-        }
-
-        // Store moving averages for trend analysis
-        this.movingAverages.unshift({ short: shortMA, long: longMA });
-        if (this.movingAverages.length > 3) {
-            this.movingAverages.pop();
-        }
-
-        // Calculate price momentum
-        const momentum = this.priceHistory[0] - this.priceHistory[5];
-        
-        // Calculate price volatility
-        const volatility = Math.std(this.priceHistory.slice(0, 10));
-
-        // Determine trend direction
-        let signal = null;
-        
-        if (shortMA > longMA && momentum > 0) {
-            signal = 'CALL';
-            this.currentBarrier = '+0.1'; // Required barrier for higher
-        } else if (shortMA < longMA && momentum < 0) {
-            signal = 'PUT';
-            this.currentBarrier = '-0.1'; // Required barrier for lower
-        }
-
-        // Add additional confirmation based on volatility
-        if (signal && volatility < 0.5) {
-            return signal;
-        }
-
-        return null;
+    analyzePattern() {
+        // Always trade, no pattern analysis
+        return true;
     }
 
     async executeTrade() {
-        if (!this.isRunning || this.hasOpenContract) return;
+        if (!this.isRunning) return;
 
-        const signal = this.analyzeMarket();
-        if (!signal) {
+        // Analyze pattern to determine if we should trade
+        const shouldTrade = this.analyzePattern();
+        if (!shouldTrade) {
             setTimeout(() => this.executeTrade(), 1000);
             return;
         }
 
-        this.currentContractType = signal;
-
         try {
+            // Send proposal request for digit over contract
             this.ws.send(JSON.stringify({
                 proposal: 1,
                 amount: this.currentStake.toString(),
                 basis: "stake",
-                contract_type: signal,
+                contract_type: "DIGITOVER",
                 currency: "USD",
-                duration: 5,
+                duration: 1,
                 duration_unit: "t",
                 symbol: "R_10",
-                barrier: this.currentBarrier // Using +0.1 for higher and -0.1 for lower
+                barrier: this.currentBarrier.toString()
             }));
         } catch (error) {
             console.error('Trade execution error:', error);
@@ -204,29 +162,33 @@ class HigherLowerBot {
             const data = JSON.parse(typeof message === 'string' ? message : message.toString());
             console.log('Received message:', data.msg_type);
 
-            if (data.msg_type === 'tick') {
-                if (data.tick && data.tick.quote) {
-                    const price = data.tick.quote;
-                    this.priceHistory.unshift(price);
-                    if (this.priceHistory.length > this.trendWindow) {
-                        this.priceHistory.pop();
-                    }
-                    this.lastPrice = price;
-                }
-            }
-            else if (data.msg_type === 'proposal') {
-                if (this.isRunning && data.proposal && !this.hasOpenContract) {
+            if (data.msg_type === 'proposal') {
+                if (this.isRunning && data.proposal) {
                     console.log('Buying contract with proposal:', data.proposal.id);
                     this.ws.send(JSON.stringify({
                         buy: data.proposal.id,
                         price: data.proposal.ask_price
                     }));
-                    this.hasOpenContract = true;
                 }
             }
             else if (data.msg_type === 'buy') {
                 if (data.buy) {
                     console.log('Contract purchased:', data.buy.contract_id);
+                    this.currentContractId = data.buy.contract_id;
+                }
+            }
+            else if (data.msg_type === 'tick') {
+                if (data.tick && data.tick.quote) {
+                    const digit = parseInt(data.tick.quote.toString().slice(-1));
+                    this.lastDigit = digit;
+                    
+                    // Update digit history for pattern analysis
+                    this.digitHistory.unshift(digit);
+                    if (this.digitHistory.length > 10) {
+                        this.digitHistory.pop();
+                    }
+                    
+                    console.log('Current digit:', digit, 'Consecutive zeros:', this.consecutiveZeros);
                 }
             }
             else if (data.msg_type === 'proposal_open_contract') {
@@ -234,16 +196,15 @@ class HigherLowerBot {
                 if (contract && contract.is_sold) {
                     console.log('Contract result:', contract.status);
                     const profit = parseFloat(contract.profit);
-                    
+                    const win = profit > 0;
+
                     this.updateStats({
                         stake: this.currentStake,
                         profit: profit,
-                        win: profit > 0,
-                        type: this.currentContractType
+                        win: win
                     });
 
-                    this.hasOpenContract = false;
-                    
+                    // Execute next trade after a short delay
                     setTimeout(() => {
                         if (this.isRunning) {
                             this.executeTrade();
@@ -257,13 +218,6 @@ class HigherLowerBot {
     }
 }
 
-// Helper function to calculate standard deviation
-Math.std = function(array) {
-    const n = array.length;
-    const mean = array.reduce((a, b) => a + b) / n;
-    return Math.sqrt(array.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n);
-};
-
 // Export the bot class
-module.exports = HigherLowerBot;
-export default HigherLowerBot; 
+module.exports = SafeOverBot;
+export default SafeOverBot; 

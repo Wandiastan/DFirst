@@ -10,40 +10,81 @@ interface BotCard {
   features: string[];
   file: string;
   color: string;
+  rating: number;
 }
 
 const bots: BotCard[] = [
+  {
+    name: 'Safe Over Bot',
+    description: 'Low-risk trading on digits over 0 with consecutive pattern analysis',
+    symbol: 'R_10',
+    features: ['Low Risk', 'Zero Pattern Analysis', 'Conservative Trading'],
+    file: 'safeoverbot',
+    color: '#4CAF50',
+    rating: 4.7
+  },
+  {
+    name: 'Safe Under Bot',
+    description: 'Low-risk trading on digits under 9 with consecutive pattern analysis',
+    symbol: 'R_10',
+    features: ['Low Risk', 'Nine Pattern Analysis', 'Conservative Trading'],
+    file: 'safeunderbot',
+    color: '#2196F3',
+    rating: 4.7
+  },
+  {
+    name: 'Russian Odds Bot',
+    description: 'Fast-paced even/odd trading with 5-tick pattern analysis and relaxed recovery',
+    symbol: 'R_50',
+    features: ['5-Tick Analysis', 'Quick Recovery', 'Pattern Trading'],
+    file: 'russianodds',
+    color: '#FF4081',
+    rating: 4.6
+  },
+  {
+    name: 'Smart Volatility Bot',
+    description: 'Advanced volatility trading with dynamic timeframes and smart risk adjustment',
+    symbol: 'R_75',
+    features: ['Volatility Measurement', 'Dynamic Timeframes', 'Smart Risk Adjustment'],
+    file: 'smartvolatility',
+    color: '#E91E63',
+    rating: 4.7
+  },
+  {
+    name: 'Smart Even Bot',
+    description: 'Advanced even/odd trading with smart pattern analysis and recovery',
+    symbol: 'R_50',
+    features: ['Pattern Analysis', 'Smart Recovery', 'Streak Detection'],
+    file: 'smarteven',
+    color: '#673AB7',
+    rating: 4.8
+  },
+  {
+    name: 'Metro Differ Bot',
+    description: 'Smart digit differ trading with random and pattern-based strategies',
+    symbol: 'R_25',
+    features: ['Random Strategy', 'Pattern Analysis', 'Smart Recovery'],
+    file: 'metrodiffer',
+    color: '#9C27B0',
+    rating: 4.6
+  },
+  {
+    name: 'Alien Rise Fall Bot',
+    description: 'Advanced rise/fall trading with smart trend confirmation and recovery',
+    symbol: 'R_10',
+    features: ['Smart Recovery', 'Trend Analysis', 'Adaptive Trading'],
+    file: 'alienrisefall',
+    color: '#00BCD4',
+    rating: 4.8
+  },
   {
     name: 'DIFFER Bot',
     description: 'Trades on digit difference patterns with advanced pattern recognition',
     symbol: 'R_25',
     features: ['Pattern Recognition', 'Martingale Strategy', 'Real-time Stats'],
     file: 'DIFFERbot',
-    color: '#FF6B6B'
-  },
-  {
-    name: 'Even Bot',
-    description: 'Specializes in even number patterns with probability analysis',
-    symbol: 'R_10',
-    features: ['Even Numbers', 'Pattern Analysis', 'Simple Strategy'],
-    file: 'evenbot',
-    color: '#4ECDC4'
-  },
-  {
-    name: 'Touch Bot',
-    description: 'Advanced technical analysis with multiple indicators',
-    symbol: 'R_100',
-    features: ['Technical Analysis', 'Multiple Indicators', 'Complex Patterns'],
-    file: 'touchbot',
-    color: '#45B7D1'
-  },
-  {
-    name: 'Over Bot',
-    description: 'Trades on digits over specific barriers with adaptive selection',
-    symbol: 'R_10',
-    features: ['Adaptive Barriers', 'Pattern Analysis', 'Optimization'],
-    file: 'overbot',
-    color: '#96CEB4'
+    color: '#FF6B6B',
+    rating: 4.5
   },
   {
     name: 'No Touch Bot',
@@ -51,39 +92,8 @@ const bots: BotCard[] = [
     symbol: 'R_100',
     features: ['Technical Analysis', 'Volatility Trading', 'Risk Management'],
     file: 'notouchbot',
-    color: '#D4A5A5'
-  },
-  {
-    name: 'Odd Bot',
-    description: 'Specializes in odd number patterns with probability calculations',
-    symbol: 'R_75',
-    features: ['Odd Numbers', 'Probability Analysis', 'Simple Strategy'],
-    file: 'oddbot',
-    color: '#FFD93D'
-  },
-  {
-    name: 'Higher Lower Bot',
-    description: 'Price action based trading with multiple timeframe analysis',
-    symbol: 'R_10',
-    features: ['Price Action', 'Moving Averages', 'Trend Analysis'],
-    file: 'higherlowerbot',
-    color: '#6C5B7B'
-  },
-  {
-    name: 'Even Odd Bot',
-    description: 'Adaptive even/odd trading with pattern switching capability',
-    symbol: 'R_75',
-    features: ['Pattern Switching', 'Enhanced Martingale', 'Advanced Patterns'],
-    file: 'evenoddbot',
-    color: '#F67280'
-  },
-  {
-    name: 'Over Under Bot',
-    description: 'Dynamic barrier selection with probability-based analysis',
-    symbol: 'R_50',
-    features: ['Dynamic Barriers', 'Probability Analysis', 'Adaptive Strategy'],
-    file: 'overunderbot',
-    color: '#355C7D'
+    color: '#D4A5A5',
+    rating: 4.6
   },
   {
     name: 'Rise Fall Bot',
@@ -91,16 +101,27 @@ const bots: BotCard[] = [
     symbol: 'R_10',
     features: ['Multiple Indicators', 'Volume Analysis', 'Risk Management'],
     file: 'risefallbot',
-    color: '#2A363B'
+    color: '#2A363B',
+    rating: 4.9
   },
   {
-    name: 'Under Bot',
-    description: 'Trades on digits under specific barriers with pattern optimization',
-    symbol: 'R_100',
-    features: ['Conservative Barriers', 'Pattern Analysis', 'Optimization'],
-    file: 'underbot',
-    color: '#99B898'
+    name: 'High Risk Over Bot',
+    description: 'High-risk trading on digits over 4-5 with higher payouts',
+    symbol: 'R_10',
+    features: ['High Risk', 'High Payout', 'Dynamic Barriers'],
+    file: 'overbot',
+    color: '#FFA726',
+    rating: 4.4
   },
+  {
+    name: 'High Risk Under Bot',
+    description: 'High-risk trading on digits under 5-6 with higher payouts',
+    symbol: 'R_100',
+    features: ['High Risk', 'High Payout', 'Dynamic Barriers'],
+    file: 'underbot',
+    color: '#99B898',
+    rating: 4.3
+  }
 ];
 
 function BotCard({ bot }: { bot: BotCard }) {
@@ -108,8 +129,13 @@ function BotCard({ bot }: { bot: BotCard }) {
     <View style={[styles.card, { borderLeftColor: bot.color }]}>
       <View style={styles.cardHeader}>
         <ThemedText style={styles.botName}>{bot.name}</ThemedText>
-        <View style={[styles.symbolTag, { backgroundColor: bot.color }]}>
-          <ThemedText style={styles.symbolText}>{bot.symbol}</ThemedText>
+        <View style={styles.headerRight}>
+          <View style={[styles.ratingTag, { backgroundColor: bot.color + '20' }]}>
+            <ThemedText style={[styles.ratingText, { color: bot.color }]}>★ {bot.rating}</ThemedText>
+          </View>
+          <View style={[styles.symbolTag, { backgroundColor: bot.color }]}>
+            <ThemedText style={styles.symbolText}>{bot.symbol}</ThemedText>
+          </View>
         </View>
       </View>
       
@@ -203,6 +229,20 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#1E293B',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  ratingTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  ratingText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   symbolTag: {
     paddingHorizontal: 8,
