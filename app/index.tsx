@@ -255,6 +255,13 @@ function LoginScreen() {
             </View>
           </Animated.View>
         )}
+
+        <View style={styles.poweredByContainer}>
+          <ThemedText style={styles.poweredByText}>Powered by</ThemedText>
+          <View style={styles.derivLogo}>
+            <ThemedText style={styles.derivText}>deriv</ThemedText>
+          </View>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -414,6 +421,36 @@ const styles = StyleSheet.create({
     color: '#64748B',
     fontSize: 16,
     fontWeight: '600',
+  },
+  poweredByContainer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  poweredByText: {
+    fontSize: 14,
+    color: '#94A3B8',
+    marginBottom: 8,
+  },
+  derivLogo: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  derivText: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#FF444F',
   }
 });
 

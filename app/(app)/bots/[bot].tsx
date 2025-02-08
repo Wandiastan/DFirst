@@ -19,6 +19,7 @@ import SmartVolatility from './smartvolatility';
 import RussianOdds from './russianodds';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { getCurrentUser } from '../../firebase.config';
 
 interface BotConfig {
   initialStake: string;
@@ -473,6 +474,13 @@ function BotScreen() {
     setIsLoading(true);
     
     try {
+      const user = getCurrentUser();
+      if (!user) {
+        Alert.alert('Error', 'Please sign in to use the bot');
+        router.push('/(app)/home');
+        return;
+      }
+
       setStartTime(new Date());
       setIsRunning(true);
       setStopButtonDisabled(true);
@@ -483,8 +491,9 @@ function BotScreen() {
       await saveRunningState(true);
       
       // Check for OAuth tokens first
-      const savedTokens = await AsyncStorage.getItem(DERIV_OAUTH_TOKENS);
+      const savedTokens = await AsyncStorage.getItem(`${DERIV_OAUTH_TOKENS}_${user.uid}`);
       let authToken: string | null = null;
+      let accountId: string | null = null;
       
       if (savedTokens) {
         const tokens = JSON.parse(savedTokens) as DerivOAuthTokens;
@@ -492,18 +501,19 @@ function BotScreen() {
         if (tokens.selectedAccount) {
           console.log('[Bot] Using OAuth token for account:', tokens.selectedAccount.account);
           authToken = tokens.selectedAccount.token;
+          accountId = tokens.selectedAccount.account;
         }
       }
       
       // Fallback to API key if no OAuth token
       if (!authToken) {
-      const savedKey = await AsyncStorage.getItem(DERIV_API_KEY);
-      if (!savedKey) {
-        setIsRunning(false);
-        await saveRunningState(false);
-        Alert.alert('Error', 'Please connect your Deriv account first');
-        router.push('/(app)/home');
-        return;
+        const savedKey = await AsyncStorage.getItem(`${DERIV_API_KEY}_${user.uid}`);
+        if (!savedKey) {
+          setIsRunning(false);
+          await saveRunningState(false);
+          Alert.alert('Error', 'Please connect your Deriv account first');
+          router.push('/(app)/home');
+          return;
         }
         console.log('[Bot] Using API key authentication');
         authToken = savedKey;
@@ -541,6 +551,18 @@ function BotScreen() {
           }
 
           if (data.msg_type === 'authorize' && data.authorize) {
+            // Verify the account belongs to the user
+            if (accountId && data.authorize.loginid !== accountId) {
+              console.error('[Bot] Account mismatch:', data.authorize.loginid, 'expected:', accountId);
+              Alert.alert('Error', 'Account verification failed. Please reconnect your Deriv account.');
+              wsInstance.close();
+              setWs(null);
+              setIsRunning(false);
+              saveRunningState(false);
+              router.push('/(app)/home');
+              return;
+            }
+
             console.log('[Bot] Authorization successful, getting balance...');
             wsInstance.send(JSON.stringify({ 
               balance: 1,
@@ -926,7 +948,11 @@ function BotScreen() {
   useEffect(() => {
     const confirmBalance = async () => {
       try {
-        const savedTokens = await AsyncStorage.getItem(DERIV_OAUTH_TOKENS);
+        const user = getCurrentUser();
+        if (!user) return;
+        
+        const savedTokens = await AsyncStorage.getItem(`${DERIV_OAUTH_TOKENS}_${user.uid}`);
+        const globalTokens = await AsyncStorage.getItem(DERIV_OAUTH_TOKENS);
         let authToken: string | null = null;
         
         if (savedTokens) {
@@ -937,7 +963,7 @@ function BotScreen() {
         }
         
         if (!authToken) {
-          const savedKey = await AsyncStorage.getItem(DERIV_API_KEY);
+          const savedKey = await AsyncStorage.getItem(`${DERIV_API_KEY}_${user.uid}`);
           if (!savedKey) return;
           authToken = savedKey;
         }
@@ -1001,13 +1027,11 @@ function BotScreen() {
           <View style={styles.card}>
             <View style={styles.configHeader}>
               <ThemedText style={styles.cardTitle}>Bot Configuration</ThemedText>
-              {accountInfo?.balance && (
-                <View style={styles.configBalanceBadge}>
-                  <ThemedText style={styles.configBalanceText}>
-                    ${accountInfo.balance.toFixed(2)}
-                  </ThemedText>
-                </View>
-              )}
+              <View style={styles.configBalanceBadge}>
+                <ThemedText style={styles.configBalanceText}>
+                  ${(accountInfo?.balance || 0).toFixed(2)}
+                </ThemedText>
+              </View>
             </View>
             <View style={styles.inputGroup}>
               <View style={styles.inputWrapper}>

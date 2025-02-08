@@ -1,34 +1,91 @@
-import { useState } from 'react';
-import { StyleSheet, TextInput, TouchableOpacity, View, Alert } from 'react-native';
+import { useState, useEffect } from 'react';
+import { StyleSheet, View, TextInput, TouchableOpacity, Alert, Linking } from 'react-native';
 import { Link, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { createAccount } from './firebase.config';
-
 import { ThemedText } from '@/components/ThemedText';
+import { createAccount } from './firebase.config';
+import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 function SignUpScreen() {
-  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [referralCode, setReferralCode] = useState('');
+
+  useEffect(() => {
+    checkInitialLink();
+  }, []);
+
+  const checkInitialLink = async () => {
+    try {
+      const url = await Linking.getInitialURL();
+      if (url) {
+        const params = new URLSearchParams(url.split('?')[1]);
+        const ref = params.get('ref');
+        if (ref) {
+          setReferralCode(ref);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking initial link:', error);
+    }
+  };
 
   const handleSignUp = async () => {
     if (loading) return;
-    if (!name || !email || !password) {
+    if (!email || !password || !name) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
 
     setLoading(true);
     try {
+      console.log('[Signup] Creating account with email:', email);
       const userCredential = await createAccount(email, password, name);
-      console.log('User account created:', userCredential.user.uid);
+      console.log('[Signup] Account created successfully:', userCredential.user.uid);
+      
+      const userId = userCredential.user.uid;
+      const db = getFirestore();
+
+      // Enhanced user document structure
+      const userData = {
+        displayName: name,
+        email,
+        createdAt: new Date(),
+        purchases: [], // Initialize empty purchases array
+        referredBy: null // Will be updated if referral code exists
+      };
+
+      // Verify referral code if provided
+      if (referralCode) {
+        console.log('[Signup] Verifying referral code:', referralCode);
+        const referrerDoc = await getDoc(doc(db, 'users', referralCode));
+        if (referrerDoc.exists()) {
+          console.log('[Signup] Valid referral code found');
+          userData.referredBy = referralCode;
+        } else {
+          console.log('[Signup] Invalid referral code');
+        }
+      }
+
+      console.log('[Signup] Creating user document');
+      await setDoc(doc(db, 'users', userId), userData);
+      await AsyncStorage.setItem('@saved_email', email);
+      
+      console.log('[Signup] Signup process completed successfully');
       router.replace('/(app)/home');
     } catch (error: any) {
-      console.error('Signup error:', error);
+      console.error('[Signup] Error during signup:', error);
+      console.error('[Signup] Error details:', {
+        code: error.code,
+        message: error.message,
+        stack: error.stack
+      });
       Alert.alert(
         'Signup Error',
-        error.message || 'An error occurred during signup'
+        error.message || 'An error occurred during signup. Please try again.'
       );
     } finally {
       setLoading(false);
@@ -40,7 +97,9 @@ function SignUpScreen() {
       <View style={styles.container}>
         <View style={styles.header}>
           <ThemedText style={styles.title}>Create Account</ThemedText>
-          <ThemedText style={styles.subtitle}>Sign up to get started</ThemedText>
+          <ThemedText style={styles.subtitle}>
+            Join DFirst to start your trading journey
+          </ThemedText>
         </View>
 
         <View style={styles.form}>
@@ -54,7 +113,7 @@ function SignUpScreen() {
           />
           <TextInput
             style={styles.input}
-            placeholder="Email"
+            placeholder="Email Address"
             value={email}
             onChangeText={setEmail}
             keyboardType="email-address"
@@ -69,9 +128,17 @@ function SignUpScreen() {
             secureTextEntry
             editable={!loading}
           />
-          
-          <TouchableOpacity 
-            style={[styles.button, loading && styles.buttonDisabled]} 
+          <TextInput
+            style={styles.input}
+            placeholder="Partner Code (Optional)"
+            value={referralCode}
+            onChangeText={setReferralCode}
+            autoCapitalize="none"
+            editable={!loading}
+          />
+
+          <TouchableOpacity
+            style={[styles.button, loading && styles.buttonDisabled]}
             onPress={handleSignUp}
             disabled={loading}
           >
@@ -87,6 +154,13 @@ function SignUpScreen() {
                 <ThemedText style={styles.link}>Sign In</ThemedText>
               </TouchableOpacity>
             </Link>
+          </View>
+        </View>
+
+        <View style={styles.poweredByContainer}>
+          <ThemedText style={styles.poweredByText}>Powered by</ThemedText>
+          <View style={styles.derivLogo}>
+            <ThemedText style={styles.derivText}>deriv</ThemedText>
           </View>
         </View>
       </View>
@@ -163,6 +237,36 @@ const styles = StyleSheet.create({
     color: '#007AFF',
     fontWeight: '600',
   },
+  poweredByContainer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  poweredByText: {
+    fontSize: 14,
+    color: '#94A3B8',
+    marginBottom: 8,
+  },
+  derivLogo: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  derivText: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#FF444F',
+  }
 });
 
 export default SignUpScreen;

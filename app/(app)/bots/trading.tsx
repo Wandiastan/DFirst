@@ -1,7 +1,18 @@
-import { StyleSheet, View, ScrollView, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Modal, Linking, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/ThemedText';
 import { router } from 'expo-router';
+import { useState, useEffect } from 'react';
+import { getCurrentUser } from '../../firebase.config';
+import { 
+  initializePayment, 
+  checkSubscriptionStatus, 
+  getBotTier, 
+  isBotFree, 
+  handlePaymentCallback,
+  Subscription,
+  getSubscriptionTimeRemaining
+} from './bots_payments/bots_subscriptions';
 
 interface BotCard {
   name: string;
@@ -125,6 +136,139 @@ const bots: BotCard[] = [
 ];
 
 function BotCard({ bot }: { bot: BotCard }) {
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedDuration, setSelectedDuration] = useState<'weekly' | 'monthly'>('weekly');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isModalLoading, setIsModalLoading] = useState(false);
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [isCheckingAccess, setIsCheckingAccess] = useState(true);
+
+  useEffect(() => {
+    checkBotAccess();
+  }, [bot.name]);
+
+  const checkBotAccess = async () => {
+    try {
+      setIsCheckingAccess(true);
+      const user = getCurrentUser();
+      if (!user) return;
+
+      const botSubscription = await checkSubscriptionStatus(user.uid, bot.name);
+      setSubscription(botSubscription);
+    } catch (error) {
+      console.error('[Trading] Failed to check bot access:', error);
+    } finally {
+      setIsCheckingAccess(false);
+    }
+  };
+
+  const handleBotAccess = async () => {
+    try {
+      setIsModalLoading(true);
+      console.log('[Trading] Checking bot access for:', bot.name);
+      if (isBotFree(bot.name)) {
+        console.log('[Trading] Bot is free, redirecting to:', bot.file);
+        router.push(`/bots/${bot.file}`);
+        return;
+      }
+
+      const user = getCurrentUser();
+      console.log('[Trading] Current user:', user?.uid);
+      if (!user) {
+        console.log('[Trading] No user found, redirecting to auth');
+        Alert.alert('Login Required', 'Please login to access this bot');
+        router.push('/');
+        return;
+      }
+
+      // Check if user has active subscription for this bot
+      const botSubscription = await checkSubscriptionStatus(user.uid, bot.name);
+      if (botSubscription) {
+        console.log('[Trading] Active subscription found, redirecting to bot');
+        router.push(`/bots/${bot.file}`);
+        return;
+      }
+
+      console.log('[Trading] No active subscription, showing payment modal');
+      setShowPaymentModal(true);
+    } catch (error) {
+      console.error('[Trading] Access check failed:', error);
+      Alert.alert('Error', 'Failed to check bot access. Please try again.');
+    } finally {
+      setIsModalLoading(false);
+    }
+  };
+
+  const handlePayment = async () => {
+    if (isProcessing) return;
+
+    try {
+      console.log('[Trading] Initializing payment process');
+      setIsProcessing(true);
+      const user = getCurrentUser();
+      console.log('[Trading] User details:', { uid: user?.uid, email: user?.email });
+      
+      if (!user || !user.email) {
+        console.log('[Trading] No user or email found');
+        Alert.alert('Error', 'Please log in to continue');
+        return;
+      }
+
+      const botTier = getBotTier(bot.name);
+      console.log('[Trading] Bot tier details:', botTier);
+      if (!botTier) {
+        console.log('[Trading] Invalid bot tier for:', bot.name);
+        Alert.alert('Error', 'Invalid bot tier');
+        return;
+      }
+
+      const amount = selectedDuration === 'weekly' ? botTier.weeklyPrice : botTier.monthlyPrice;
+      console.log('[Trading] Payment details:', {
+        amount,
+        duration: selectedDuration,
+        tier: botTier.name
+      });
+
+      const session = await initializePayment(
+        amount,
+        user.email,
+        botTier.name,
+        selectedDuration,
+        { 
+          botName: bot.name,
+          userId: user.uid,
+          returnUrl: 'https://dfirst-payments.onrender.com/payment/verify'
+        }
+      );
+
+      console.log('[Trading] Payment session created:', session);
+      if (!session || !session.authorization_url) {
+        console.error('[Trading] Invalid payment session:', session);
+        Alert.alert('Error', 'Failed to initialize payment. Please try again.');
+        return;
+      }
+
+      console.log('[Trading] Opening payment URL:', session.authorization_url);
+      await Linking.openURL(session.authorization_url);
+      setShowPaymentModal(false);
+    } catch (error) {
+      console.error('[Trading] Payment failed:', error);
+      if (error instanceof Error) {
+        console.error('[Trading] Payment error details:', {
+          message: error.message,
+          stack: error.stack,
+          name: error.name
+        });
+      }
+      Alert.alert(
+        'Payment Error',
+        'Failed to initialize payment. Please try again later.'
+      );
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   return (
     <View style={[styles.card, { borderLeftColor: bot.color }]}>
       <View style={styles.cardHeader}>
@@ -149,17 +293,187 @@ function BotCard({ bot }: { bot: BotCard }) {
         ))}
       </View>
 
-      <TouchableOpacity 
-        style={[styles.viewButton, { backgroundColor: bot.color }]}
-        onPress={() => router.push(`/bots/${bot.file}`)}
+      <TouchableOpacity
+        style={[styles.accessButton, { backgroundColor: bot.color }]}
+        onPress={handleBotAccess}
+        disabled={isModalLoading || isCheckingAccess}
       >
-        <ThemedText style={styles.viewButtonText}>View {bot.name}</ThemedText>
+        {isModalLoading || isCheckingAccess ? (
+          <ActivityIndicator color="#FFFFFF" />
+        ) : (
+          <View style={styles.accessButtonContent}>
+            <ThemedText style={styles.buttonText}>
+              {isBotFree(bot.name) ? 'Access Bot' : 
+               subscription ? 'Access Bot' : 'Subscribe to Access'}
+            </ThemedText>
+            {subscription && (
+              <View style={[styles.durationBadge, { backgroundColor: '#FFFFFF30' }]}>
+                <ThemedText style={[styles.durationText, { color: '#FFFFFF' }]}>
+                  {getSubscriptionTimeRemaining(subscription.endDate)}
+                </ThemedText>
+              </View>
+            )}
+            {isBotFree(bot.name) && (
+              <View style={[styles.freeBadge, { backgroundColor: '#FFFFFF30' }]}>
+                <ThemedText style={[styles.freeBadgeText, { color: '#FFFFFF' }]}>
+                  FREE
+                </ThemedText>
+              </View>
+            )}
+          </View>
+        )}
       </TouchableOpacity>
+
+      <Modal
+        visible={showPaymentModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !isProcessing && setShowPaymentModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <View style={[styles.modalHeader, { backgroundColor: bot.color + '20' }]}>
+              <ThemedText style={[styles.modalBotName, { color: bot.color }]}>{bot.name}</ThemedText>
+              <ThemedText style={styles.modalRating}>★ {bot.rating}</ThemedText>
+            </View>
+            
+            <ThemedText style={styles.modalHype}>
+              {bot.features[0]} • {bot.features[1]} • {bot.features[2]}
+            </ThemedText>
+
+            <View style={styles.durationContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.durationButton,
+                  selectedDuration === 'weekly' && [styles.selectedDuration, { borderColor: bot.color }]
+                ]}
+                onPress={() => !isProcessing && setSelectedDuration('weekly')}
+                disabled={isProcessing}
+              >
+                <ThemedText style={[
+                  styles.durationText,
+                  selectedDuration === 'weekly' && { color: bot.color }
+                ]}>
+                  Weekly
+                </ThemedText>
+                <ThemedText style={[
+                  styles.priceText,
+                  selectedDuration === 'weekly' && { color: bot.color }
+                ]}>
+                  KES {getBotTier(bot.name)?.weeklyPrice}
+                </ThemedText>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.durationButton,
+                  selectedDuration === 'monthly' && [styles.selectedDuration, { borderColor: bot.color }]
+                ]}
+                onPress={() => !isProcessing && setSelectedDuration('monthly')}
+                disabled={isProcessing}
+              >
+                <ThemedText style={[
+                  styles.durationText,
+                  selectedDuration === 'monthly' && { color: bot.color }
+                ]}>
+                  Monthly
+                </ThemedText>
+                <ThemedText style={[
+                  styles.priceText,
+                  selectedDuration === 'monthly' && { color: bot.color }
+                ]}>
+                  KES {getBotTier(bot.name)?.monthlyPrice}
+                </ThemedText>
+                <ThemedText style={styles.savingsTag}>Save 20%</ThemedText>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.paymentButton,
+                { backgroundColor: bot.color, opacity: isProcessing ? 0.7 : 1 }
+              ]}
+              onPress={handlePayment}
+              disabled={isProcessing}
+            >
+              {isProcessing ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator color="#FFFFFF" />
+                  <ThemedText style={[styles.paymentButtonText, styles.loadingText]}>
+                    Processing...
+                  </ThemedText>
+                </View>
+              ) : (
+                <ThemedText style={styles.paymentButtonText}>Pay Now</ThemedText>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => !isProcessing && setShowPaymentModal(false)}
+              disabled={isProcessing}
+            >
+              <ThemedText style={[styles.cancelText, isProcessing && styles.disabledText]}>
+                Cancel
+              </ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 function TradingScreen() {
+  useEffect(() => {
+    const subscription = Linking.addEventListener('url', async (event) => {
+      if (event.url.includes('dfirsttrader://payment/verify')) {
+        console.log('[Trading] Payment callback received:', event.url);
+        const result = await handlePaymentCallback(event.url);
+        
+        if (result.success) {
+          Alert.alert('Success', 'Payment successful! You now have access to the bot.');
+          // If we're not already on the trading screen, navigate there
+          if (result.screen === 'trading') {
+            router.push('/bots/trading');
+          }
+        } else {
+          Alert.alert('Error', 'Payment verification failed. Please contact support if you were charged.');
+          // Still navigate to trading screen on error to maintain UX
+          if (result.screen === 'trading') {
+            router.push('/bots/trading');
+          }
+        }
+      }
+    });
+
+    // Check for initial URL (app opened via payment callback)
+    Linking.getInitialURL().then(async (url) => {
+      if (url && url.includes('dfirsttrader://payment/verify')) {
+        console.log('[Trading] Initial payment callback:', url);
+        const result = await handlePaymentCallback(url);
+        
+        if (result.success) {
+          Alert.alert('Success', 'Payment successful! You now have access to the bot.');
+          // If we're not already on the trading screen, navigate there
+          if (result.screen === 'trading') {
+            router.push('/bots/trading');
+          }
+        } else {
+          Alert.alert('Error', 'Payment verification failed. Please contact support if you were charged.');
+          // Still navigate to trading screen on error to maintain UX
+          if (result.screen === 'trading') {
+            router.push('/bots/trading');
+          }
+        }
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
   return (
     <SafeAreaView edges={['top']} style={styles.safeArea}>
       <View style={styles.container}>
@@ -275,14 +589,135 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
   },
-  viewButton: {
-    paddingVertical: 10,
+  accessButton: {
+    padding: 12,
     borderRadius: 8,
+    marginTop: 16,
+  },
+  accessButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    width: '90%',
+    maxWidth: 340,
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  viewButtonText: {
-    color: '#FFFFFF',
+  modalBotName: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  modalRating: {
     fontSize: 14,
+    fontWeight: '600',
+  },
+  modalHype: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  durationContainer: {
+    padding: 16,
+    gap: 12,
+  },
+  durationButton: {
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+  },
+  selectedDuration: {
+    backgroundColor: '#FFFFFF',
+  },
+  durationText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  priceText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  savingsTag: {
+    position: 'absolute',
+    right: 8,
+    top: 8,
+    backgroundColor: '#22C55E',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  paymentButton: {
+    margin: 16,
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  paymentButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  cancelButton: {
+    alignItems: 'center',
+    paddingBottom: 16,
+  },
+  cancelText: {
+    color: '#64748B',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  loadingText: {
+    marginLeft: 8,
+  },
+  disabledText: {
+    opacity: 0.5,
+  },
+  durationBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+  },
+  freeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+  },
+  freeBadgeText: {
+    fontSize: 12,
     fontWeight: '600',
   },
 });

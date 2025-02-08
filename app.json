@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "run dfirsttrader",
+    "scheme": "dfirsttrader",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "plugins": [
@@ -40,6 +40,11 @@
               "scheme": "dfirsttrader",
               "host": "oauth2",
               "pathPrefix": "/callback"
+            },
+            {
+              "scheme": "dfirsttrader",
+              "host": "payment",
+              "pathPrefix": "/verify"
             }
           ],
           "category": ["BROWSABLE", "DEFAULT"]

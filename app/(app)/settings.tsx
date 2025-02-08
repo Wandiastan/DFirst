@@ -7,6 +7,7 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { logout } from '../firebase.config';
 import { Linking } from 'react-native';
+import { getCurrentUser } from '../firebase.config';
 
 const DERIV_API_KEY = '@deriv_api_key';
 const DERIV_OAUTH_TOKENS = '@deriv_oauth_tokens';
@@ -48,17 +49,22 @@ export default function SettingsScreen() {
     loadConnections();
   }, []);
 
+  const getUserSpecificKey = (baseKey: string) => {
+    const user = getCurrentUser();
+    return user ? `${baseKey}_${user.uid}` : baseKey;
+  };
+
   const loadConnections = async () => {
     try {
       // Load API Key
-      const savedKey = await AsyncStorage.getItem(DERIV_API_KEY);
+      const savedKey = await AsyncStorage.getItem(getUserSpecificKey(DERIV_API_KEY));
       if (savedKey) {
         setApiKey(savedKey);
         setIsConnected(true);
       }
 
       // Load OAuth tokens and fetch account details
-      const savedTokens = await AsyncStorage.getItem(DERIV_OAUTH_TOKENS);
+      const savedTokens = await AsyncStorage.getItem(getUserSpecificKey(DERIV_OAUTH_TOKENS));
       if (savedTokens) {
         const tokens = JSON.parse(savedTokens) as DerivOAuthTokens;
         setOauthTokens(tokens);
@@ -176,7 +182,7 @@ export default function SettingsScreen() {
     try {
       const connected = await connectWithKey(apiKey);
       if (connected) {
-        await AsyncStorage.setItem(DERIV_API_KEY, apiKey);
+        await AsyncStorage.setItem(getUserSpecificKey(DERIV_API_KEY), apiKey);
         setIsConnected(true);
         setShowApiKeyModal(false);
         Alert.alert('Success', 'API key connected successfully', [
@@ -196,7 +202,7 @@ export default function SettingsScreen() {
 
   const disconnectAccount = async () => {
     try {
-      await AsyncStorage.removeItem(DERIV_API_KEY);
+      await AsyncStorage.removeItem(getUserSpecificKey(DERIV_API_KEY));
       setApiKey('');
       setIsConnected(false);
       Alert.alert('Success', 'Account disconnected successfully', [
@@ -213,7 +219,7 @@ export default function SettingsScreen() {
 
   const disconnectOAuth = async () => {
     try {
-      await AsyncStorage.removeItem(DERIV_OAUTH_TOKENS);
+      await AsyncStorage.removeItem(getUserSpecificKey(DERIV_OAUTH_TOKENS));
       setOauthTokens(null);
       setIsOAuthConnected(false);
       Alert.alert('Success', 'OAuth connection removed successfully');
@@ -232,6 +238,8 @@ export default function SettingsScreen() {
   const handleLogout = async () => {
     try {
       await logout();
+      await AsyncStorage.removeItem(getUserSpecificKey(DERIV_API_KEY));
+      await AsyncStorage.removeItem(getUserSpecificKey(DERIV_OAUTH_TOKENS));
       router.replace('/');
     } catch (error) {
       console.error('Logout error:', error);

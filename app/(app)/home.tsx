@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, TouchableOpacity, View, Modal, TextInput, Linking, Alert } from 'react-native';
+import { StyleSheet, TouchableOpacity, View, Modal, TextInput, Linking, Alert, ScrollView } from 'react-native';
 import { router, useSegments } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { logout, getCurrentUser } from '../firebase.config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { getFirestore, doc, getDoc } from 'firebase/firestore';
 
 import { ThemedText } from '@/components/ThemedText';
 
@@ -39,12 +40,17 @@ const DERIV_WS_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=67709';
 const APP_ID = '67709';
 const CREATE_API_KEY_URL = 'https://app.deriv.com/account/api-token?t=_30qaRjl291dMjdsyM5hasGNd7ZgqdRLk';
 const CREATE_MT5_URL = 'https://app.deriv.com/mt5?t=_30qaRjl291dMjdsyM5hasGNd7ZgqdRLk';
-const P2P_URL = 'https://p2p.deriv.com/advertiser/426826?advert_id=3182910&t=_30qaRjl291dMjdsyM5hasGNd7ZgqdRLk';
+const DEFAULT_P2P_DEPOSIT = "https://p2p.deriv.com/advertiser/426826?advert_id=3182910&t=_30qaRjl291dMjdsyM5hasGNd7ZgqdRLk";
+const DEFAULT_P2P_WITHDRAW = "https://p2p.deriv.com/advertiser/426826?advert_id=3202284&t=_30qaRjl291dMjdsyM5hasGNd7ZgqdRLk";
+const DEFAULT_PA_DEPOSIT = "";
+const DEFAULT_PA_WITHDRAW = "";
 const BOTS_URL = 'https://app.deriv.com/bot?t=_30qaRjl291dMjdsyM5hasGNd7ZgqdRLk';
 const OAUTH_URL = `https://oauth.deriv.com/oauth2/authorize?app_id=${APP_ID}&l=en&brand=deriv&app_markup_percentage=0&t=_30qaRjl291dMjdsyM5hasGNd7ZgqdRLk&redirect_uri=dfirsttrader://oauth2/callback`;
 
 function HomeScreen() {
   const [showDisconnectModal, setShowDisconnectModal] = useState(false);
+  const [showPaymentMethodModal, setShowPaymentMethodModal] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'deposit' | 'withdraw' | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [account, setAccount] = useState<DerivAccount | null>(null);
@@ -52,17 +58,28 @@ function HomeScreen() {
   const [oauthTokens, setOauthTokens] = useState<DerivOAuthTokens | null>(null);
   const [isOAuthConnected, setIsOAuthConnected] = useState(false);
   const [isFirstLogin, setIsFirstLogin] = useState(true);
+  const [p2pDepositLink, setP2pDepositLink] = useState(DEFAULT_P2P_DEPOSIT);
+  const [p2pWithdrawLink, setP2pWithdrawLink] = useState(DEFAULT_P2P_WITHDRAW);
+  const [paDepositLink, setPaDepositLink] = useState(DEFAULT_PA_DEPOSIT);
+  const [paWithdrawLink, setPaWithdrawLink] = useState(DEFAULT_PA_WITHDRAW);
+  const [usePaymentAgent, setUsePaymentAgent] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       checkExistingConnections();
+      loadP2PLinks();
     }, [])
   );
 
+  const getUserSpecificKey = (baseKey: string) => {
+    const user = getCurrentUser();
+    return user ? `${baseKey}_${user.uid}` : baseKey;
+  };
+
   const checkExistingConnections = async () => {
     try {
-      const savedTokens = await AsyncStorage.getItem(DERIV_OAUTH_TOKENS);
-      const savedKey = await AsyncStorage.getItem(DERIV_API_KEY);
+      const savedTokens = await AsyncStorage.getItem(getUserSpecificKey(DERIV_OAUTH_TOKENS));
+      const savedKey = await AsyncStorage.getItem(getUserSpecificKey(DERIV_API_KEY));
       const firstLoginFlag = await AsyncStorage.getItem('@first_login');
       
       setIsFirstLogin(!firstLoginFlag);
@@ -83,6 +100,47 @@ function HomeScreen() {
       }
     } catch (error) {
       console.error('Error checking connections:', error);
+    }
+  };
+
+  const loadP2PLinks = async () => {
+    try {
+      const currentUser = getCurrentUser();
+      if (!currentUser) return;
+
+      const db = getFirestore();
+      const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+      
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        
+        if (userData.referredBy) {
+          const referrerDoc = await getDoc(doc(db, 'users', userData.referredBy));
+          
+          if (referrerDoc.exists()) {
+            const referrerData = referrerDoc.data();
+            setP2pDepositLink(referrerData.p2pDepositLink || DEFAULT_P2P_DEPOSIT);
+            setP2pWithdrawLink(referrerData.p2pWithdrawLink || DEFAULT_P2P_WITHDRAW);
+            setPaDepositLink(referrerData.paDepositLink || DEFAULT_PA_DEPOSIT);
+            setPaWithdrawLink(referrerData.paWithdrawLink || DEFAULT_PA_WITHDRAW);
+            setUsePaymentAgent(!!referrerData.paDepositLink && !!referrerData.paWithdrawLink);
+            return;
+          }
+        }
+        
+        setP2pDepositLink(DEFAULT_P2P_DEPOSIT);
+        setP2pWithdrawLink(DEFAULT_P2P_WITHDRAW);
+        setPaDepositLink(DEFAULT_PA_DEPOSIT);
+        setPaWithdrawLink(DEFAULT_PA_WITHDRAW);
+        setUsePaymentAgent(false);
+      }
+    } catch (error) {
+      console.error('Error loading P2P links:', error);
+      setP2pDepositLink(DEFAULT_P2P_DEPOSIT);
+      setP2pWithdrawLink(DEFAULT_P2P_WITHDRAW);
+      setPaDepositLink(DEFAULT_PA_DEPOSIT);
+      setPaWithdrawLink(DEFAULT_PA_WITHDRAW);
+      setUsePaymentAgent(false);
     }
   };
 
@@ -221,11 +279,11 @@ function HomeScreen() {
   const handleDisconnect = async () => {
     try {
       if (isOAuthConnected) {
-        await AsyncStorage.removeItem(DERIV_OAUTH_TOKENS);
+        await AsyncStorage.removeItem(getUserSpecificKey(DERIV_OAUTH_TOKENS));
         setOauthTokens(null);
         setIsOAuthConnected(false);
       } else {
-        await AsyncStorage.removeItem(DERIV_API_KEY);
+        await AsyncStorage.removeItem(getUserSpecificKey(DERIV_API_KEY));
       }
       setAccount(null);
       setLoading(false);
@@ -257,11 +315,11 @@ function HomeScreen() {
     try {
       const connected = await connectWithKey(keyToUse.trim());
       if (connected) {
-        await AsyncStorage.setItem(DERIV_API_KEY, keyToUse.trim());
+        await AsyncStorage.setItem(getUserSpecificKey(DERIV_API_KEY), keyToUse.trim());
         setPreviousApiKey('');
       } else {
         Alert.alert('Error', 'Failed to connect with API key');
-        await AsyncStorage.removeItem(DERIV_API_KEY);
+        await AsyncStorage.removeItem(getUserSpecificKey(DERIV_API_KEY));
       }
     } catch (error) {
       console.error('Error saving API key:', error);
@@ -274,7 +332,8 @@ function HomeScreen() {
   const handleLogout = async () => {
     try {
       await logout();
-      await AsyncStorage.removeItem(DERIV_API_KEY);
+      await AsyncStorage.removeItem(getUserSpecificKey(DERIV_API_KEY));
+      await AsyncStorage.removeItem(getUserSpecificKey(DERIV_OAUTH_TOKENS));
       router.replace('/');
     } catch (error) {
       console.error('Logout error:', error);
@@ -315,7 +374,7 @@ function HomeScreen() {
   const handleOAuthCallback = async (url: string) => {
     try {
       const tokens = parseOAuthCallback(url);
-      await AsyncStorage.setItem(DERIV_OAUTH_TOKENS, JSON.stringify(tokens));
+      await AsyncStorage.setItem(getUserSpecificKey(DERIV_OAUTH_TOKENS), JSON.stringify(tokens));
       setOauthTokens(tokens);
       setIsOAuthConnected(true);
       
@@ -459,6 +518,37 @@ function HomeScreen() {
     }
   };
 
+  const handleDeposit = () => {
+    if (paDepositLink && p2pDepositLink) {
+      setPendingAction('deposit');
+      setShowPaymentMethodModal(true);
+    } else {
+      const depositLink = usePaymentAgent && paDepositLink ? paDepositLink : p2pDepositLink;
+      Linking.openURL(depositLink);
+    }
+  };
+
+  const handleWithdraw = () => {
+    if (paWithdrawLink && p2pWithdrawLink) {
+      setPendingAction('withdraw');
+      setShowPaymentMethodModal(true);
+    } else {
+      const withdrawLink = usePaymentAgent && paWithdrawLink ? paWithdrawLink : p2pWithdrawLink;
+      Linking.openURL(withdrawLink);
+    }
+  };
+
+  const handlePaymentMethodSelect = (usePA: boolean) => {
+    setUsePaymentAgent(usePA);
+    if (pendingAction === 'deposit') {
+      Linking.openURL(usePA ? paDepositLink : p2pDepositLink);
+    } else if (pendingAction === 'withdraw') {
+      Linking.openURL(usePA ? paWithdrawLink : p2pWithdrawLink);
+    }
+    setShowPaymentMethodModal(false);
+    setPendingAction(null);
+  };
+
   useEffect(() => {
     const subscription = Linking.addEventListener('url', (event) => {
       if (event.url.includes('dfirsttrader://oauth2/callback')) {
@@ -502,9 +592,6 @@ function HomeScreen() {
           {!account && !isOAuthConnected ? (
             <View style={styles.welcomeCardContainer}>
               <View style={styles.welcomeCard}>
-                <View style={styles.welcomeIconContainer}>
-                  <Ionicons name="wallet-outline" size={48} color="#FF444F" />
-                </View>
                 <ThemedText style={styles.welcomeDescription}>
                   Connect to deposit, withdraw, and trade on Deriv
                 </ThemedText>
@@ -539,6 +626,10 @@ function HomeScreen() {
                 >
                   <ThemedText style={styles.apiKeyLinkText}>Use API Key Instead</ThemedText>
                 </TouchableOpacity>
+                <View style={styles.poweredByContainer}>
+                  <ThemedText style={styles.poweredByText}>Powered by</ThemedText>
+                  <ThemedText style={styles.derivText}>deriv</ThemedText>
+                </View>
               </View>
             </View>
           ) : account ? (
@@ -594,13 +685,13 @@ function HomeScreen() {
                 <View style={styles.transactionButtons}>
                   <TouchableOpacity 
                     style={[styles.transactionButton, styles.depositButton]}
-                    onPress={() => Linking.openURL(P2P_URL)}
+                    onPress={handleDeposit}
                   >
                     <ThemedText style={styles.transactionButtonText}>Deposit</ThemedText>
                   </TouchableOpacity>
                   <TouchableOpacity 
                     style={[styles.transactionButton, styles.withdrawButton]}
-                    onPress={() => Linking.openURL(P2P_URL)}
+                    onPress={handleWithdraw}
                   >
                     <ThemedText style={styles.transactionButtonText}>Withdraw</ThemedText>
                   </TouchableOpacity>
@@ -662,7 +753,67 @@ function HomeScreen() {
             </View>
           </View>
         </Modal>
+
+        {/* Payment Method Selection Modal */}
+        <Modal
+          visible={showPaymentMethodModal}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => {
+            setShowPaymentMethodModal(false);
+            setPendingAction(null);
+          }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <ThemedText style={styles.modalTitle}>Select Payment Method</ThemedText>
+                <TouchableOpacity 
+                  onPress={() => {
+                    setShowPaymentMethodModal(false);
+                    setPendingAction(null);
+                  }}
+                  style={styles.closeButton}
+                >
+                  <Ionicons name="close" size={24} color="#64748B" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.modalBody}>
+                <TouchableOpacity 
+                  style={styles.paymentMethodButton}
+                  onPress={() => handlePaymentMethodSelect(false)}
+                >
+                  <ThemedText style={styles.paymentMethodTitle}>P2P Transfer</ThemedText>
+                  <ThemedText style={styles.paymentMethodDescription}>
+                    Fast and secure peer-to-peer transfers
+                  </ThemedText>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={styles.paymentMethodButton}
+                  onPress={() => handlePaymentMethodSelect(true)}
+                >
+                  <ThemedText style={styles.paymentMethodTitle}>Payment Agent</ThemedText>
+                  <ThemedText style={styles.paymentMethodDescription}>
+                    Process through a verified Deriv payment agent
+                  </ThemedText>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
+
+      <TouchableOpacity
+        style={styles.partnerButton}
+        onPress={() => router.push('/referrals/users')}
+      >
+        <View style={styles.partnerButtonContent}>
+          <ThemedText style={styles.partnerButtonText}>Join Partner Program</ThemedText>
+          <ThemedText style={styles.partnerButtonIcon}>💎</ThemedText>
+        </View>
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -803,7 +954,7 @@ const styles = StyleSheet.create({
   welcomeCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
-    padding: 32,
+    padding: 24,
     width: '100%',
     maxWidth: 400,
     alignItems: 'center',
@@ -815,26 +966,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#F1F5F9',
   },
-  welcomeIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255, 68, 79, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
   welcomeDescription: {
     fontSize: 16,
     color: '#64748B',
     textAlign: 'center',
     lineHeight: 24,
-    marginBottom: 32,
+    marginBottom: 20,
     maxWidth: 300,
   },
   oauthCard: {
     width: '100%',
-    padding: 24,
+    padding: 20,
     borderRadius: 16,
     backgroundColor: '#FFFFFF',
     shadowColor: '#000',
@@ -847,12 +989,12 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '600',
     color: '#1E293B',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   oauthDescription: {
     fontSize: 16,
     color: '#64748B',
-    marginBottom: 24,
+    marginBottom: 16,
   },
   oauthButton: {
     width: '100%',
@@ -870,7 +1012,7 @@ const styles = StyleSheet.create({
   dividerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 16,
+    marginVertical: 12,
     width: '100%',
   },
   divider: {
@@ -889,8 +1031,8 @@ const styles = StyleSheet.create({
   accountCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    padding: 20,
-    marginTop: 16,
+    padding: 16,
+    marginTop: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -903,7 +1045,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   accountTitle: {
     fontSize: 20,
@@ -916,7 +1058,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   accountInfo: {
-    gap: 16,
+    gap: 12,
   },
   accountRow: {
     flexDirection: 'row',
@@ -957,11 +1099,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   mt5Header: {
-    marginTop: 20,
-    marginBottom: 12,
+    marginTop: 16,
+    marginBottom: 8,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',
-    paddingTop: 20,
+    paddingTop: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -989,8 +1131,8 @@ const styles = StyleSheet.create({
   transactionButtons: {
     flexDirection: 'row',
     gap: 12,
-    marginTop: 20,
-    paddingTop: 20,
+    marginTop: 16,
+    paddingTop: 16,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',
   },
@@ -1018,7 +1160,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 12,
+    marginTop: 8,
   },
   botsButtonText: {
     color: '#FFFFFF',
@@ -1026,7 +1168,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   apiKeyLink: {
-    marginTop: 24,
+    marginTop: 16,
     padding: 8,
   },
   apiKeyLinkText: {
@@ -1035,6 +1177,70 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     textDecorationLine: 'underline',
   },
-});
+  poweredByContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+    gap: 6,
+  },
+  poweredByText: {
+    fontSize: 12,
+    color: '#94A3B8',
+  },
+  derivText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FF444F',
+  },
+  partnerButton: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  partnerButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  partnerButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E293B',
+  },
+  partnerButtonIcon: {
+    fontSize: 16,
+  },
+  paymentMethodButton: {
+    backgroundColor: '#F8FAFC',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  paymentMethodTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginBottom: 4,
+  },
+  paymentMethodDescription: {
+    fontSize: 14,
+    color: '#64748B',
+  },
+} as const);
 
 export default HomeScreen; 
