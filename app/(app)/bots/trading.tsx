@@ -1,4 +1,4 @@
-import { StyleSheet, View, ScrollView, TouchableOpacity, Modal, Linking, Alert, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Modal, Linking, Alert, ActivityIndicator, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/ThemedText';
 import { router } from 'expo-router';
@@ -11,8 +11,10 @@ import {
   isBotFree, 
   handlePaymentCallback,
   Subscription,
-  getSubscriptionTimeRemaining
+  getSubscriptionTimeRemaining,
+  initializeMPesaPayment
 } from './bots_payments/bots_subscriptions';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface BotCard {
   name: string;
@@ -135,6 +137,8 @@ const bots: BotCard[] = [
   }
 ];
 
+const MPESA_NUMBER_KEY = '@mpesa_number';
+
 function BotCard({ bot }: { bot: BotCard }) {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedDuration, setSelectedDuration] = useState<'weekly' | 'monthly'>('weekly');
@@ -142,10 +146,26 @@ function BotCard({ bot }: { bot: BotCard }) {
   const [isModalLoading, setIsModalLoading] = useState(false);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
+  const [paymentMethod, setPaymentMethod] = useState<'mpesa' | 'card'>('mpesa');
+  const [phoneNumber, setPhoneNumber] = useState('');
 
   useEffect(() => {
     checkBotAccess();
   }, [bot.name]);
+
+  useEffect(() => {
+    const loadMpesaNumber = async () => {
+      try {
+        const savedNumber = await AsyncStorage.getItem(MPESA_NUMBER_KEY);
+        if (savedNumber) {
+          setPhoneNumber(savedNumber);
+        }
+      } catch (error) {
+        console.error('Error loading M-Pesa number:', error);
+      }
+    };
+    loadMpesaNumber();
+  }, []);
 
   const checkBotAccess = async () => {
     try {
@@ -229,28 +249,103 @@ function BotCard({ bot }: { bot: BotCard }) {
         tier: botTier.name
       });
 
-      const session = await initializePayment(
-        amount,
-        user.email,
-        botTier.name,
-        selectedDuration,
-        { 
-          botName: bot.name,
-          userId: user.uid,
-          returnUrl: 'https://dfirst-payments.onrender.com/payment/verify'
+      if (paymentMethod === 'mpesa') {
+        // Format and validate phone number
+        let formattedPhone = phoneNumber;
+        if (phoneNumber.length === 9) {
+          formattedPhone = '0' + phoneNumber;
         }
-      );
+        if (!formattedPhone.startsWith('0')) {
+          formattedPhone = '0' + formattedPhone;
+        }
+        
+        // Save the M-Pesa number
+        await AsyncStorage.setItem(MPESA_NUMBER_KEY, formattedPhone);
+        
+        // Convert to international format for M-Pesa
+        formattedPhone = '254' + formattedPhone.substring(1);
+        
+        console.log('[Trading] Processing M-Pesa payment:', {
+          originalNumber: phoneNumber,
+          formattedNumber: formattedPhone,
+          amount,
+          metadata: {
+            botName: bot.name,
+            userId: user.uid,
+            tier: botTier.name,
+            subscriptionType: selectedDuration
+          }
+        });
 
-      console.log('[Trading] Payment session created:', session);
-      if (!session || !session.authorization_url) {
-        console.error('[Trading] Invalid payment session:', session);
-        Alert.alert('Error', 'Failed to initialize payment. Please try again.');
-        return;
+        if (formattedPhone.length !== 12) {
+          Alert.alert('Error', 'Please enter a valid phone number (e.g., 0712345678)');
+          return;
+        }
+
+        try {
+          const session = await initializeMPesaPayment(
+            formattedPhone,
+            amount,
+            { 
+              botName: bot.name,
+              userId: user.uid,
+              tier: botTier.name,
+              subscriptionType: selectedDuration
+            }
+          );
+
+          console.log('[Trading] M-Pesa session response:', session);
+          if (!session || !session.checkoutRequestID) {
+            console.error('[Trading] Invalid M-Pesa session:', {
+              session,
+              error: 'Missing checkoutRequestID'
+            });
+            Alert.alert('Error', 'Failed to initialize M-Pesa payment. Please try again.');
+            return;
+          }
+
+          Alert.alert(
+            'STK Push Sent',
+            'Please check your phone for the M-Pesa payment prompt and enter your PIN to complete the payment.',
+            [{ text: 'OK' }]
+          );
+          setShowPaymentModal(false);
+        } catch (error) {
+          console.error('[Trading] M-Pesa payment error:', {
+            error,
+            phoneNumber: formattedPhone,
+            amount,
+            metadata: {
+              botName: bot.name,
+              userId: user.uid,
+              tier: botTier.name
+            }
+          });
+          Alert.alert('Error', 'Failed to process M-Pesa payment. Please try again.');
+        }
+      } else {
+        const session = await initializePayment(
+          amount,
+          user.email,
+          botTier.name,
+          selectedDuration,
+          { 
+            botName: bot.name,
+            userId: user.uid,
+            returnUrl: 'https://dfirst-payments.onrender.com/payment/verify'
+          }
+        );
+
+        console.log('[Trading] Card payment session created:', session);
+        if (!session || !session.authorization_url) {
+          console.error('[Trading] Invalid payment session:', session);
+          Alert.alert('Error', 'Failed to initialize card payment. Please try again.');
+          return;
+        }
+
+        await Linking.openURL(session.authorization_url);
+        setShowPaymentModal(false);
       }
-
-      console.log('[Trading] Opening payment URL:', session.authorization_url);
-      await Linking.openURL(session.authorization_url);
-      setShowPaymentModal(false);
     } catch (error) {
       console.error('[Trading] Payment failed:', error);
       if (error instanceof Error) {
@@ -350,18 +445,20 @@ function BotCard({ bot }: { bot: BotCard }) {
                 onPress={() => !isProcessing && setSelectedDuration('weekly')}
                 disabled={isProcessing}
               >
-                <ThemedText style={[
-                  styles.durationText,
-                  selectedDuration === 'weekly' && { color: bot.color }
-                ]}>
-                  Weekly
-                </ThemedText>
-                <ThemedText style={[
-                  styles.priceText,
-                  selectedDuration === 'weekly' && { color: bot.color }
-                ]}>
-                  KES {getBotTier(bot.name)?.weeklyPrice}
-                </ThemedText>
+                <View style={styles.durationContent}>
+                  <ThemedText style={[
+                    styles.durationText,
+                    selectedDuration === 'weekly' && { color: bot.color }
+                  ]}>
+                    Weekly
+                  </ThemedText>
+                  <ThemedText style={[
+                    styles.priceText,
+                    selectedDuration === 'weekly' && { color: bot.color }
+                  ]}>
+                    KES {getBotTier(bot.name)?.weeklyPrice}
+                  </ThemedText>
+                </View>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -372,20 +469,72 @@ function BotCard({ bot }: { bot: BotCard }) {
                 onPress={() => !isProcessing && setSelectedDuration('monthly')}
                 disabled={isProcessing}
               >
-                <ThemedText style={[
-                  styles.durationText,
-                  selectedDuration === 'monthly' && { color: bot.color }
-                ]}>
-                  Monthly
-                </ThemedText>
-                <ThemedText style={[
-                  styles.priceText,
-                  selectedDuration === 'monthly' && { color: bot.color }
-                ]}>
-                  KES {getBotTier(bot.name)?.monthlyPrice}
-                </ThemedText>
-                <ThemedText style={styles.savingsTag}>Save 20%</ThemedText>
+                <View style={styles.durationContent}>
+                  <ThemedText style={[
+                    styles.durationText,
+                    selectedDuration === 'monthly' && { color: bot.color }
+                  ]}>
+                    Monthly
+                  </ThemedText>
+                  <ThemedText style={[
+                    styles.priceText,
+                    selectedDuration === 'monthly' && { color: bot.color }
+                  ]}>
+                    KES {getBotTier(bot.name)?.monthlyPrice}
+                  </ThemedText>
+                  <ThemedText style={styles.savingsTag}>Save 20%</ThemedText>
+                </View>
               </TouchableOpacity>
+            </View>
+
+            <View style={styles.paymentSection}>
+              <View style={styles.paymentMethodContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.paymentMethodButton,
+                    paymentMethod === 'mpesa' && [styles.selectedPaymentMethod, { borderColor: bot.color }]
+                  ]}
+                  onPress={() => setPaymentMethod('mpesa')}
+                  disabled={isProcessing}
+                >
+                  <ThemedText style={[
+                    styles.paymentMethodText,
+                    paymentMethod === 'mpesa' && { color: bot.color }
+                  ]}>
+                    M-Pesa
+                  </ThemedText>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.paymentMethodButton,
+                    paymentMethod === 'card' && [styles.selectedPaymentMethod, { borderColor: bot.color }]
+                  ]}
+                  onPress={() => setPaymentMethod('card')}
+                  disabled={isProcessing}
+                >
+                  <ThemedText style={[
+                    styles.paymentMethodText,
+                    paymentMethod === 'card' && { color: bot.color }
+                  ]}>
+                    Card
+                  </ThemedText>
+                </TouchableOpacity>
+              </View>
+
+              {paymentMethod === 'mpesa' && (
+                <View style={styles.phoneInputContainer}>
+                  <TextInput
+                    style={styles.phoneInput}
+                    placeholder="Phone Number (e.g., 0712345678)"
+                    value={phoneNumber}
+                    onChangeText={setPhoneNumber}
+                    keyboardType="phone-pad"
+                    maxLength={10}
+                    editable={!isProcessing}
+                  />
+                </View>
+              )}
             </View>
 
             <TouchableOpacity
@@ -404,7 +553,9 @@ function BotCard({ bot }: { bot: BotCard }) {
                   </ThemedText>
                 </View>
               ) : (
-                <ThemedText style={styles.paymentButtonText}>Pay Now</ThemedText>
+                <ThemedText style={styles.paymentButtonText}>
+                  {paymentMethod === 'mpesa' ? 'Pay with M-Pesa' : 'Pay with Card'}
+                </ThemedText>
               )}
             </TouchableOpacity>
 
@@ -609,23 +760,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    padding: 20,
+    padding: 16,
   },
   modalContent: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     width: '90%',
-    maxWidth: 340,
+    maxWidth: 320,
     overflow: 'hidden',
   },
   modalHeader: {
-    padding: 16,
+    padding: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   modalBotName: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
   },
   modalRating: {
@@ -633,39 +784,46 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   modalHype: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#64748B',
     textAlign: 'center',
-    paddingHorizontal: 16,
-    paddingBottom: 16,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
   },
   durationContainer: {
-    padding: 16,
-    gap: 12,
+    padding: 12,
+    gap: 8,
   },
   durationButton: {
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 2,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1.5,
     borderColor: '#E2E8F0',
     backgroundColor: '#F8FAFC',
+  },
+  durationContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: 55,
   },
   selectedDuration: {
     backgroundColor: '#FFFFFF',
   },
   durationText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '600',
+    color: '#64748B',
   },
   priceText: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: '700',
     color: '#64748B',
   },
   savingsTag: {
     position: 'absolute',
-    right: 8,
-    top: 8,
+    right: -8,
+    top: -8,
     backgroundColor: '#22C55E',
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -674,24 +832,62 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
   },
+  paymentSection: {
+    padding: 12,
+    gap: 8,
+  },
+  paymentMethodContainer: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  paymentMethodButton: {
+    flex: 1,
+    height: 40,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+  },
+  selectedPaymentMethod: {
+    backgroundColor: '#FFFFFF',
+  },
+  paymentMethodText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  phoneInputContainer: {
+    marginTop: 4,
+  },
+  phoneInput: {
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    backgroundColor: '#F8FAFC',
+  },
   paymentButton: {
-    margin: 16,
-    padding: 14,
-    borderRadius: 12,
+    margin: 12,
+    padding: 12,
+    borderRadius: 10,
     alignItems: 'center',
   },
   paymentButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
   },
   cancelButton: {
     alignItems: 'center',
-    paddingBottom: 16,
+    paddingBottom: 12,
   },
   cancelText: {
     color: '#64748B',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '500',
   },
   loadingContainer: {

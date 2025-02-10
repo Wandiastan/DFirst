@@ -1,21 +1,42 @@
-import { StyleSheet, View, TouchableOpacity, ScrollView, Share, Clipboard, TextInput, Linking, Alert } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, ScrollView, Share, Clipboard, TextInput, Linking, Alert, ActivityIndicator, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/ThemedText';
 import { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, getFirestore, doc, setDoc, getDoc, addDoc } from 'firebase/firestore';
 import { getCurrentUser } from '../../firebase.config';
+
+interface BotPurchase {
+  botName: string;
+  price: number;
+  purchaseDate: Date;
+  usedDiscount: boolean;
+  discountAmount?: number;
+  sharePercentage: number;
+  status: 'pending' | 'paid' | 'withdrawn';
+}
 
 interface ReferredUser {
   id: string;
   name: string;
   signupDate: Date;
-  purchases: Array<{
-    botName: string;
-    price: number;
-    purchaseDate: Date;
-    usedDiscount: boolean;
-    discountAmount?: number;
-  }>;
+  purchases: BotPurchase[];
+  totalEarned: number;
+  pendingPayout: number;
+  mpesaNumber?: string;
+  mpesaName?: string;
+}
+
+interface WithdrawalRequest {
+  id?: string;
+  partnerId: string;
+  amount: number;
+  mpesaNumber: string;
+  mpesaName: string;
+  timestamp: Date;
+  status: 'pending' | 'approved' | 'rejected';
+  relatedTransactions: string[];
+  totalEarnings: number;
+  pendingPayout: number;
 }
 
 const DEFAULT_P2P_DEPOSIT = "https://p2p.deriv.com/advertiser/426826?advert_id=3182910&t=_30qaRjl291dMjdsyM5hasGNd7ZgqdRLk";
@@ -28,12 +49,23 @@ function PartnerProgramScreen() {
   const [referralCode, setReferralCode] = useState<string>('');
   const [referralLink, setReferralLink] = useState<string>('');
   const [showCopiedMessage, setShowCopiedMessage] = useState<'code' | 'link' | null>(null);
+  const [totalEarnings, setTotalEarnings] = useState<number>(0);
+  const [pendingEarnings, setPendingEarnings] = useState<number>(0);
+  const [isWithdrawing, setIsWithdrawing] = useState<boolean>(false);
+  const [mpesaNumber, setMpesaNumber] = useState<string>('');
+  const [mpesaName, setMpesaName] = useState<string>('');
+  const [isSavingMpesa, setIsSavingMpesa] = useState<boolean>(false);
   const [p2pDepositLink, setP2pDepositLink] = useState('');
   const [p2pWithdrawLink, setP2pWithdrawLink] = useState('');
   const [paDepositLink, setPaDepositLink] = useState('');
   const [paWithdrawLink, setPaWithdrawLink] = useState('');
   const [isEditingP2P, setIsEditingP2P] = useState(false);
   const [isEditingPA, setIsEditingPA] = useState(false);
+  const [isSubmittingWithdrawal, setIsSubmittingWithdrawal] = useState(false);
+  const [withdrawalHistory, setWithdrawalHistory] = useState<WithdrawalRequest[]>([]);
+  const [isEditingMpesa, setIsEditingMpesa] = useState(false);
+  const [showInfoPopup, setShowInfoPopup] = useState(true);
+  const [neverShowPopup, setNeverShowPopup] = useState(false);
 
   useEffect(() => {
     const currentUser = getCurrentUser();
@@ -58,7 +90,9 @@ function PartnerProgramScreen() {
           id: doc.id,
           name: userData.displayName || 'Anonymous User',
           signupDate: userData.createdAt?.toDate() || new Date(),
-          purchases: userData.purchases || []
+          purchases: userData.purchases || [],
+          totalEarned: userData.totalEarned || 0,
+          pendingPayout: userData.pendingPayout || 0
         });
       });
       setUsers(referredUsers.sort((a, b) => b.signupDate.getTime() - a.signupDate.getTime()));
@@ -78,8 +112,24 @@ function PartnerProgramScreen() {
 
     loadLinks();
 
+    // Load M-Pesa settings
+    const loadMpesaSettings = async () => {
+      const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        setMpesaNumber(data.mpesaNumber || '');
+        setMpesaName(data.mpesaName || '');
+      }
+    };
+
+    loadMpesaSettings();
+
+    if (neverShowPopup) {
+      setShowInfoPopup(false);
+    }
+
     return () => unsubscribe();
-  }, []);
+  }, [neverShowPopup]);
 
   const handleCopyCode = async () => {
     await Clipboard.setString(referralCode);
@@ -104,7 +154,7 @@ function PartnerProgramScreen() {
     }
   };
 
-  const calculatePayout = (purchase: ReferredUser['purchases'][0]) => {
+  const calculatePayout = (purchase: BotPurchase) => {
     const baseShare = purchase.price * 0.5; // 50% share
     if (purchase.usedDiscount && purchase.discountAmount) {
       return baseShare - (purchase.discountAmount * 0.5); // Deduct 50% of discount from share
@@ -183,14 +233,243 @@ function PartnerProgramScreen() {
     Linking.openURL('https://p2p.deriv.com/?t=' + DERIV_AFFILIATE);
   };
 
+  const handleWithdraw = async () => {
+    if (!mpesaNumber || !mpesaName) {
+      Alert.alert('Error', 'Please set your M-Pesa details first');
+      return;
+    }
+
+    if (isSubmittingWithdrawal) return;
+
+    try {
+      setIsSubmittingWithdrawal(true);
+      const user = getCurrentUser();
+      if (!user) return;
+
+      const db = getFirestore();
+      
+      // Get all related transactions
+      const relatedTransactions: string[] = [];
+      users.forEach(referredUser => {
+        referredUser.purchases.forEach(purchase => {
+          if (purchase.status === 'pending') {
+            relatedTransactions.push(purchase.botName + '_' + referredUser.id);
+          }
+        });
+      });
+
+      const withdrawalRequest: WithdrawalRequest = {
+        partnerId: user.uid,
+        amount: pendingEarnings,
+        mpesaNumber,
+        mpesaName,
+        timestamp: new Date(),
+        status: 'pending',
+        relatedTransactions,
+        totalEarnings: totalEarnings,
+        pendingPayout: pendingEarnings
+      };
+
+      await addDoc(collection(db, 'withdrawalRequests'), withdrawalRequest);
+
+      Alert.alert(
+        'Success',
+        'Your withdrawal request has been submitted and is pending approval'
+      );
+    } catch (error) {
+      console.error('Withdrawal request error:', error);
+      Alert.alert(
+        'Error',
+        'Failed to submit withdrawal request. Please try again.'
+      );
+    } finally {
+      setIsSubmittingWithdrawal(false);
+    }
+  };
+
+  const handleSaveMpesaSettings = async () => {
+    if (isSavingMpesa) return;
+    
+    // Validate M-Pesa number format (0700000000)
+    const mpesaRegex = /^0[17][0-9]{8}$/;
+    if (!mpesaRegex.test(mpesaNumber)) {
+      Alert.alert('Invalid Number', 'Please enter a valid M-Pesa number (e.g., 0700000000)');
+      return;
+    }
+
+    // Limit M-Pesa name to three words
+    const nameWords = mpesaName.trim().split(' ');
+    if (nameWords.length > 3) {
+      Alert.alert('Invalid Name', 'M-Pesa name should not exceed three words');
+      return;
+    }
+
+    if (!mpesaName.trim()) {
+      Alert.alert('Invalid Name', 'Please enter the M-Pesa account name');
+      return;
+    }
+
+    const currentUser = getCurrentUser();
+    if (!currentUser) return;
+
+    try {
+      setIsSavingMpesa(true);
+      const db = getFirestore();
+      await setDoc(doc(db, 'users', currentUser.uid), {
+        mpesaNumber,
+        mpesaName: mpesaName.trim()
+      }, { merge: true });
+
+      Alert.alert('Success', 'M-Pesa details saved successfully');
+    } catch (error) {
+      console.error('Error saving M-Pesa settings:', error);
+      Alert.alert('Error', 'Failed to save M-Pesa details');
+    } finally {
+      setIsSavingMpesa(false);
+    }
+  };
+
+  const handleClosePopup = () => {
+    setShowInfoPopup(false);
+  };
+
+  const handleNeverShowPopup = () => {
+    setNeverShowPopup(true);
+    setShowInfoPopup(false);
+  };
+
   return (
     <SafeAreaView edges={['top']} style={styles.safeArea}>
       <ScrollView style={styles.container}>
+        <TouchableOpacity style={styles.infoButton} onPress={() => setShowInfoPopup(true)}>
+          <ThemedText style={styles.infoButtonText}>How It Works</ThemedText>
+        </TouchableOpacity>
+
+        <Modal
+          visible={showInfoPopup}
+          transparent={true}
+          animationType="slide"
+        >
+          <View style={styles.popupContainer}>
+            <View style={styles.popupContent}>
+              <ThemedText style={styles.popupTitle}>Welcome to the Partner Program!</ThemedText>
+              <ThemedText style={styles.popupText}>
+                🌟 Earn money when your community members pay for the bot.
+              </ThemedText>
+              <ThemedText style={styles.popupText}>
+                💸 Maximum daily withdrawal is KES 500,000/= (M-Pesa limit).
+              </ThemedText>
+              <ThemedText style={styles.popupText}>
+                ⏱️ Request any time, payment made within 2 hours.
+              </ThemedText>
+              <ThemedText style={styles.popupText}>
+                ✅ Ensure your withdrawal details are correct.
+              </ThemedText>
+              <ThemedText style={styles.popupText}>
+                🤖 Encourage your community to pay for bots to automate trading.
+              </ThemedText>
+              <ThemedText style={styles.popupText}>
+                👥 Create groups to develop trading strategies together.
+              </ThemedText>
+              <ThemedText style={styles.popupText}>
+                📈 Avoid greed, embrace growth and risk management.
+              </ThemedText>
+              <ThemedText style={styles.popupText}>
+                🤝 Share your links to boost your income.
+              </ThemedText>
+              <View style={styles.buttonRow}>
+                <TouchableOpacity style={styles.closeButton} onPress={handleClosePopup}>
+                  <ThemedText style={styles.closeButtonText}>Close</ThemedText>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.neverShowButton} onPress={handleNeverShowPopup}>
+                  <ThemedText style={styles.neverShowButtonText}>Don't Show Again</ThemedText>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
         <View style={styles.header}>
           <ThemedText style={styles.title}>Partner Program</ThemedText>
           <ThemedText style={styles.subtitle}>
             Join our partner community and unlock 24/7 passive income opportunities. Earn and withdraw anytime while helping others succeed.
           </ThemedText>
+        </View>
+
+        <View style={styles.earningsSection}>
+          <View style={styles.earningsCard}>
+            <View style={styles.earningsSummary}>
+              <View style={styles.earningsItem}>
+                <ThemedText style={styles.earningsLabel}>Total Earnings</ThemedText>
+                <ThemedText style={styles.earningsValue}>KES {totalEarnings.toFixed(2)}</ThemedText>
+              </View>
+              <View style={styles.earningsDivider} />
+              <View style={styles.earningsItem}>
+                <ThemedText style={styles.earningsLabel}>Available to Withdraw</ThemedText>
+                <ThemedText style={[styles.earningsValue, styles.pendingValue]}>
+                  KES {pendingEarnings.toFixed(2)}
+                </ThemedText>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={[
+                styles.withdrawButton,
+                (!mpesaNumber || !mpesaName || isSubmittingWithdrawal || pendingEarnings === 0) && styles.buttonDisabled
+              ]}
+              onPress={handleWithdraw}
+              disabled={!mpesaNumber || !mpesaName || isSubmittingWithdrawal || pendingEarnings === 0}
+            >
+              <ThemedText style={styles.withdrawButtonText}>
+                {isSubmittingWithdrawal ? 'Submitting...' : 'Withdraw Earnings'}
+              </ThemedText>
+            </TouchableOpacity>
+
+            <View style={styles.mpesaSettingsContainer}>
+              <View style={styles.mpesaHeader}>
+                <ThemedText style={styles.mpesaLabel}>Withdrawal Details</ThemedText>
+                <TouchableOpacity
+                  style={styles.editButton}
+                  onPress={() => setIsEditingMpesa(true)}
+                >
+                  <ThemedText style={styles.editButtonText}>Edit</ThemedText>
+                </TouchableOpacity>
+              </View>
+              <ThemedText style={styles.mpesaInstruction}>Please save your M-Pesa details to request withdrawals.</ThemedText>
+              {isEditingMpesa ? (
+                <View style={styles.mpesaInputColumn}>
+                  <TextInput
+                    style={styles.fullWidthMpesaInput}
+                    placeholder="M-Pesa Name"
+                    value={mpesaName}
+                    onChangeText={setMpesaName}
+                    autoCapitalize="words"
+                  />
+                  <TextInput
+                    style={styles.fullWidthMpesaInput}
+                    placeholder="M-Pesa Number (0700000000)"
+                    value={mpesaNumber}
+                    onChangeText={setMpesaNumber}
+                    keyboardType="numeric"
+                    maxLength={10}
+                  />
+                  <TouchableOpacity
+                    style={[styles.fullWidthMpesaButton, isSavingMpesa && styles.buttonDisabled]}
+                    onPress={handleSaveMpesaSettings}
+                    disabled={isSavingMpesa}
+                  >
+                    <ThemedText style={styles.fullWidthMpesaButtonText}>
+                      {isSavingMpesa ? 'Saving...' : 'Save M-Pesa Details'}
+                    </ThemedText>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.mpesaDisplayColumn}>
+                  <ThemedText style={styles.mpesaDisplayText}>Name: {mpesaName}</ThemedText>
+                  <ThemedText style={styles.mpesaDisplayText}>Number: {mpesaNumber}</ThemedText>
+                </View>
+              )}
+            </View>
+          </View>
         </View>
 
         <View style={styles.referralSection}>
@@ -352,54 +631,89 @@ function PartnerProgramScreen() {
                   style={styles.userHeader}
                   onPress={() => toggleUserExpansion(user.id)}
                 >
-                  <View>
+                  <View style={styles.userInfo}>
                     <ThemedText style={styles.userName}>{user.name}</ThemedText>
-                    <ThemedText style={styles.userDate}>
-                      Joined {user.signupDate.toLocaleDateString()}
-                    </ThemedText>
+                    <View style={styles.userStats}>
+                      <ThemedText style={styles.userDate}>
+                        Joined {user.signupDate.toLocaleDateString()}
+                      </ThemedText>
+                      {user.purchases.length > 0 ? (
+                        <View style={styles.userBadges}>
+                          {user.purchases.filter(p => p.status !== 'withdrawn').map((purchase, idx) => (
+                            <View key={idx} style={[styles.botBadge, { backgroundColor: getBotColor(purchase.botName) }]}>
+                              <ThemedText style={styles.botBadgeText}>
+                                {purchase.botName.split(' ')[0]} • {purchase.sharePercentage}%
+                              </ThemedText>
+                            </View>
+                          ))}
+                        </View>
+                      ) : (
+                        <View style={styles.noPurchaseBadge}>
+                          <ThemedText style={styles.noPurchaseText}>No Purchases</ThemedText>
+                        </View>
+                      )}
+                    </View>
                   </View>
-                  <ThemedText style={styles.userPurchaseCount}>
-                    {user.purchases.length} bot{user.purchases.length !== 1 ? 's' : ''}
+                  <ThemedText style={styles.expandIcon}>
+                    {expandedUser === user.id ? '▼' : '▶'}
                   </ThemedText>
                 </TouchableOpacity>
 
-                {expandedUser === user.id && user.purchases.length > 0 && (
+                {expandedUser === user.id && (
                   <View style={styles.purchasesList}>
-                    {user.purchases.map((purchase, index) => (
-                      <View key={index} style={styles.purchaseItem}>
-                        <View style={styles.purchaseHeader}>
-                          <ThemedText style={styles.botName}>{purchase.botName}</ThemedText>
-                          <ThemedText style={styles.purchaseDate}>
-                            {purchase.purchaseDate.toLocaleDateString()}
-                          </ThemedText>
-                        </View>
-                        
-                        <View style={styles.purchaseDetails}>
-                          <View style={styles.priceRow}>
-                            <ThemedText style={styles.priceLabel}>Price</ThemedText>
-                            <ThemedText style={styles.priceValue}>
-                              ${purchase.price.toFixed(2)}
+                    {user.purchases.length > 0 ? (
+                      user.purchases.map((purchase, index) => (
+                        <View key={index} style={styles.purchaseItem}>
+                          <View style={styles.purchaseHeader}>
+                            <View style={styles.purchaseInfo}>
+                              <ThemedText style={styles.botName}>{purchase.botName}</ThemedText>
+                              <View style={[styles.statusBadge, { backgroundColor: getStatusColor(purchase.status) }]}>
+                                <ThemedText style={styles.statusText}>
+                                  {purchase.status.charAt(0).toUpperCase() + purchase.status.slice(1)}
+                                </ThemedText>
+                              </View>
+                            </View>
+                            <ThemedText style={styles.purchaseDate}>
+                              {purchase.purchaseDate.toLocaleDateString()}
                             </ThemedText>
                           </View>
                           
-                          {purchase.usedDiscount && (
-                            <View style={styles.discountRow}>
-                              <ThemedText style={styles.discountLabel}>Discount Used</ThemedText>
-                              <ThemedText style={styles.discountValue}>
-                                -${purchase.discountAmount?.toFixed(2) || '0.00'}
+                          <View style={styles.purchaseDetails}>
+                            <View style={styles.priceRow}>
+                              <ThemedText style={styles.priceLabel}>Price</ThemedText>
+                              <ThemedText style={styles.priceValue}>
+                                KES {purchase.price.toFixed(2)}
                               </ThemedText>
                             </View>
-                          )}
-                          
-                          <View style={styles.payoutRow}>
-                            <ThemedText style={styles.payoutLabel}>Your Share</ThemedText>
-                            <ThemedText style={styles.payoutValue}>
-                              ${calculatePayout(purchase).toFixed(2)}
-                            </ThemedText>
+                            
+                            {purchase.usedDiscount && (
+                              <View style={styles.discountRow}>
+                                <ThemedText style={styles.discountLabel}>Discount Used</ThemedText>
+                                <ThemedText style={styles.discountValue}>
+                                  -KES {purchase.discountAmount?.toFixed(2) || '0.00'}
+                                </ThemedText>
+                              </View>
+                            )}
+                            
+                            <View style={styles.payoutRow}>
+                              <ThemedText style={styles.payoutLabel}>Your Share ({purchase.sharePercentage}%)</ThemedText>
+                              <ThemedText style={[
+                                styles.payoutValue,
+                                { color: getStatusColor(purchase.status) }
+                              ]}>
+                                KES {calculatePayout(purchase).toFixed(2)}
+                              </ThemedText>
+                            </View>
                           </View>
                         </View>
+                      ))
+                    ) : (
+                      <View style={styles.emptyPurchases}>
+                        <ThemedText style={styles.emptyPurchasesText}>
+                          No purchases yet
+                        </ThemedText>
                       </View>
-                    ))}
+                    )}
                   </View>
                 )}
               </View>
@@ -418,6 +732,25 @@ function PartnerProgramScreen() {
     </SafeAreaView>
   );
 }
+
+const getStatusColor = (status: string) => {
+  switch (status) {
+    case 'pending': return '#F59E0B';
+    case 'paid': return '#10B981';
+    case 'withdrawn': return '#6B7280';
+    default: return '#6B7280';
+  }
+};
+
+const getBotColor = (botName: string) => {
+  // Simple hash function to generate consistent colors
+  const hash = botName.split('').reduce((acc, char) => char.charCodeAt(0) + acc, 0);
+  const colors = [
+    '#4F46E5', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
+    '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#6366F1'
+  ];
+  return colors[hash % colors.length];
+};
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -485,6 +818,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
   },
+  userInfo: {
+    flex: 1,
+  },
+  userStats: {
+    marginTop: 4,
+  },
+  userBadges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 4,
+  },
   userName: {
     fontSize: 16,
     fontWeight: '600',
@@ -495,10 +840,10 @@ const styles = StyleSheet.create({
     color: '#64748B',
     marginTop: 2,
   },
-  userPurchaseCount: {
-    fontSize: 14,
-    color: '#6366F1',
-    fontWeight: '500',
+  expandIcon: {
+    fontSize: 12,
+    color: '#64748B',
+    marginLeft: 8,
   },
   purchasesList: {
     borderTopWidth: 1,
@@ -510,6 +855,11 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   purchaseHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  purchaseInfo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -733,6 +1083,240 @@ const styles = StyleSheet.create({
     color: '#64748B',
     textAlign: 'center',
   },
+  earningsSection: {
+    paddingHorizontal: 20,
+    marginBottom: 16,
+  },
+  earningsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  earningsSummary: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  earningsItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  earningsDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: '#E2E8F0',
+    marginHorizontal: 16,
+  },
+  earningsLabel: {
+    fontSize: 12,
+    color: '#64748B',
+    marginBottom: 4,
+  },
+  earningsValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  pendingValue: {
+    color: '#10B981',
+  },
+  withdrawButton: {
+    backgroundColor: '#059669',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  buttonDisabled: {
+    opacity: 0.7,
+  },
+  withdrawButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  userInfo: {
+    flex: 1,
+  },
+  userStats: {
+    marginTop: 4,
+  },
+  noPurchaseBadge: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+    marginTop: 4,
+  },
+  noPurchaseText: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  statusBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 8,
+  },
+  statusText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  emptyPurchases: {
+    padding: 12,
+    alignItems: 'center',
+  },
+  emptyPurchasesText: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  mpesaSettingsContainer: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+  },
+  mpesaHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  mpesaLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginBottom: 8,
+  },
+  mpesaInstruction: {
+    fontSize: 12,
+    color: '#64748B',
+    marginBottom: 12,
+  },
+  mpesaInputColumn: {
+    gap: 8,
+  },
+  fullWidthMpesaInput: {
+    flex: 1,
+    height: 36,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    fontSize: 14,
+    backgroundColor: '#F8FAFC',
+  },
+  fullWidthMpesaButton: {
+    height: 36,
+    backgroundColor: '#007AFF',
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullWidthMpesaButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  mpesaDisplayColumn: {
+    flexDirection: 'column',
+    gap: 4,
+    marginBottom: 8,
+  },
+  mpesaDisplayText: {
+    fontSize: 12,
+    color: '#1E293B',
+    fontWeight: '500',
+  },
+  editButton: {
+    backgroundColor: '#EEF2FF',
+    padding: 6,
+    borderRadius: 6,
+  },
+  editButtonText: {
+    fontSize: 12,
+    color: '#4F46E5',
+    fontWeight: '500',
+  },
+  infoButton: {
+    backgroundColor: '#4F46E5',
+    padding: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  infoButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  popupContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  popupContent: {
+    width: '80%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 20,
+    alignItems: 'center',
+    flexDirection: 'column',
+  },
+  popupTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#1E293B',
+  },
+  popupText: {
+    fontSize: 14,
+    marginBottom: 8,
+    textAlign: 'center',
+    color: '#333333',
+  },
+  closeButton: {
+    backgroundColor: '#059669',
+    padding: 8,
+    borderRadius: 8,
+    marginTop: 10,
+    flex: 1,
+  },
+  closeButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  neverShowButton: {
+    backgroundColor: '#DC2626',
+    padding: 8,
+    borderRadius: 8,
+    marginTop: 10,
+    flex: 1,
+  },
+  neverShowButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginTop: 10,
+  }
 });
 
 export default PartnerProgramScreen; 

@@ -84,7 +84,11 @@ function LoginScreen() {
       console.error('Login error:', error);
       Alert.alert(
         'Login Error',
-        error.message || 'An error occurred during login'
+        error.code === 'auth/wrong-password' ? 'The password you entered is incorrect. Please try again.' :
+        error.code === 'auth/user-not-found' ? 'No account found with this email. Please check your email or sign up.' :
+        error.code === 'auth/invalid-email' ? 'The email address is not valid. Please enter a valid email.' :
+        error.code === 'auth/too-many-requests' ? 'Too many unsuccessful login attempts. Please try again later.' :
+        'Please check your email and password and try again.' // General error message
       );
     } finally {
       setLoading(false);

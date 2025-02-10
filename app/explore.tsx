@@ -85,6 +85,8 @@ function SignUpScreen() {
       });
       Alert.alert(
         'Signup Error',
+        error.code === 'auth/email-already-in-use' ? 'This email is already in use. Please use a different email or log in.' :
+        error.code === 'auth/invalid-email' ? 'The email address is not valid. Please enter a valid email.' :
         error.message || 'An error occurred during signup. Please try again.'
       );
     } finally {

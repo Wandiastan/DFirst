@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { StyleSheet, TouchableOpacity, View, Modal, TextInput, Linking, Alert, ScrollView } from 'react-native';
-import { router, useSegments } from 'expo-router';
+import { router, useSegments, Link } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { logout, getCurrentUser } from '../firebase.config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -63,11 +63,13 @@ function HomeScreen() {
   const [paDepositLink, setPaDepositLink] = useState(DEFAULT_PA_DEPOSIT);
   const [paWithdrawLink, setPaWithdrawLink] = useState(DEFAULT_PA_WITHDRAW);
   const [usePaymentAgent, setUsePaymentAgent] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       checkExistingConnections();
       loadP2PLinks();
+      checkAdminStatus();
     }, [])
   );
 
@@ -549,6 +551,21 @@ function HomeScreen() {
     setPendingAction(null);
   };
 
+  const checkAdminStatus = async () => {
+    try {
+      const user = getCurrentUser();
+      if (!user) return;
+
+      const db = getFirestore();
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        setIsAdmin(userDoc.data().isAdmin === true);
+      }
+    } catch (error) {
+      console.error('Error checking admin status:', error);
+    }
+  };
+
   useEffect(() => {
     const subscription = Linking.addEventListener('url', (event) => {
       if (event.url.includes('dfirsttrader://oauth2/callback')) {
@@ -682,18 +699,19 @@ function HomeScreen() {
                 </View>
 
                 {/* Transaction Buttons */}
-                <View style={styles.transactionButtons}>
-                  <TouchableOpacity 
-                    style={[styles.transactionButton, styles.depositButton]}
+                <View style={styles.actionButtons}>
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.depositButton]}
                     onPress={handleDeposit}
                   >
-                    <ThemedText style={styles.transactionButtonText}>Deposit</ThemedText>
+                    <ThemedText style={styles.actionButtonText}>Deposit</ThemedText>
                   </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={[styles.transactionButton, styles.withdrawButton]}
+
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.withdrawButton]}
                     onPress={handleWithdraw}
                   >
-                    <ThemedText style={styles.transactionButtonText}>Withdraw</ThemedText>
+                    <ThemedText style={styles.actionButtonText}>Withdraw</ThemedText>
                   </TouchableOpacity>
                 </View>
 
@@ -704,6 +722,15 @@ function HomeScreen() {
                 >
                   <ThemedText style={styles.botsButtonText}>Trading Bots</ThemedText>
                 </TouchableOpacity>
+
+                {/* Admin Button - Only visible for admins */}
+                {isAdmin && (
+                  <Link href="/admin" asChild>
+                    <TouchableOpacity style={[styles.adminButton]}>
+                      <ThemedText style={styles.adminButtonText}>Admin Panel</ThemedText>
+                    </TouchableOpacity>
+                  </Link>
+                )}
               </View>
             </View>
           ) : null}
@@ -1128,7 +1155,7 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 16,
   },
-  transactionButtons: {
+  actionButtons: {
     flexDirection: 'row',
     gap: 12,
     marginTop: 16,
@@ -1136,7 +1163,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',
   },
-  transactionButton: {
+  actionButton: {
     flex: 1,
     height: 44,
     borderRadius: 8,
@@ -1149,7 +1176,7 @@ const styles = StyleSheet.create({
   withdrawButton: {
     backgroundColor: '#6366F1',
   },
-  transactionButtonText: {
+  actionButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
@@ -1240,6 +1267,26 @@ const styles = StyleSheet.create({
   paymentMethodDescription: {
     fontSize: 14,
     color: '#64748B',
+  },
+  adminButton: {
+    height: 40,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  adminButtonText: {
+    color: '#64748B',
+    fontSize: 14,
+    fontWeight: '600',
   },
 } as const);
 

@@ -1,7 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { 
   initializeAuth,
-  getReactNativePersistence,
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword,
   updateProfile,
@@ -10,6 +9,8 @@ import {
   User,
   sendPasswordResetEmail
 } from 'firebase/auth';
+import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
+import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const firebaseConfig = {
@@ -23,9 +24,8 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence(AsyncStorage)
-});
+const auth = initializeAuth(app);
+const db = getFirestore(app);
 
 // Email validation helper
 const isValidEmail = (email: string) => {
@@ -42,7 +42,25 @@ export const loginWithEmail = async (email: string, password: string) => {
   if (!isValidEmail(trimmedEmail)) {
     throw new Error('Please enter a valid email address');
   }
-  return signInWithEmailAndPassword(auth, trimmedEmail, password);
+
+  // Login with email and password
+  const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, password);
+
+  // Check admin status
+  try {
+    const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
+    const isAdmin = userDoc.exists() ? userDoc.data().isAdmin === true : false;
+    console.log('[Auth] User logged in:', {
+      uid: userCredential.user.uid,
+      email: userCredential.user.email,
+      isAdmin: isAdmin,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('[Auth] Error checking admin status:', error);
+  }
+
+  return userCredential;
 };
 
 export const createAccount = async (email: string, password: string, name: string) => {

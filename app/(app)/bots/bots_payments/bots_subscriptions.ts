@@ -14,9 +14,13 @@ interface BotTier {
 }
 
 export interface PaymentSession {
-  reference: string;
-  access_code: string;
-  authorization_url: string;
+  reference?: string;
+  access_code?: string;
+  authorization_url?: string;
+  checkoutRequestID?: string;
+  merchantRequestID?: string;
+  responseCode?: string;
+  customerMessage?: string;
 }
 
 export interface Subscription {
@@ -29,6 +33,13 @@ export interface Subscription {
   status: 'active' | 'expired';
   paymentReference: string;
   autoRenew: boolean;
+}
+
+export interface MPesaPaymentSession {
+  checkoutRequestID: string;
+  merchantRequestID: string;
+  responseCode: string;
+  customerMessage: string;
 }
 
 export const BOT_TIERS: BotTier[] = [
@@ -396,12 +407,26 @@ export const handlePaymentCallback = async (url: string): Promise<{success: bool
   try {
     const params = new URLSearchParams(url.split('?')[1]);
     const reference = params.get('reference');
+    const checkoutRequestId = params.get('checkoutRequestId');
     const status = params.get('status');
     const error = params.get('error');
     const screen = params.get('screen');
 
-    console.log('[Subscriptions] Payment callback params:', { reference, status, error, screen });
+    console.log('[Subscriptions] Payment callback params:', { 
+      reference, 
+      checkoutRequestId, 
+      status, 
+      error, 
+      screen 
+    });
 
+    // Handle M-Pesa callback
+    if (checkoutRequestId) {
+      const success = await verifyMPesaPayment(checkoutRequestId);
+      return { success, screen: screen || undefined };
+    }
+
+    // Handle Paystack callback
     if (!reference || status !== 'success') {
       console.error('[Subscriptions] Payment callback failed:', { reference, status, error });
       return { success: false, screen: screen || undefined };
@@ -431,7 +456,6 @@ export const handlePaymentCallback = async (url: string): Promise<{success: bool
     const metadata = data.data.metadata;
     console.log('[Subscriptions] Creating subscription with metadata:', metadata);
     
-    // Create subscription
     await createSubscription(
       metadata.userId,
       metadata.tier,
@@ -439,25 +463,6 @@ export const handlePaymentCallback = async (url: string): Promise<{success: bool
       reference,
       metadata.botName
     );
-
-    // Update user's purchase history
-    const db = getFirestore();
-    const userRef = doc(db, 'users', metadata.userId);
-    const userDoc = await getDoc(userRef);
-    
-    if (userDoc.exists()) {
-      const userData = userDoc.data();
-      const purchases = userData.purchases || [];
-      purchases.push({
-        botName: metadata.botName,
-        price: metadata.amount / 100, // Convert from cents
-        purchaseDate: new Date(),
-        usedDiscount: !!metadata.discountUsed,
-        discountAmount: metadata.discountAmount || 0
-      });
-      
-      await updateFirestoreDoc(userRef, { purchases });
-    }
 
     return { success: true, screen: screen || undefined };
   } catch (error) {
@@ -471,5 +476,127 @@ export const handlePaymentCallback = async (url: string): Promise<{success: bool
     }
     const params = new URLSearchParams(url.split('?')[1]);
     return { success: false, screen: params.get('screen') || undefined };
+  }
+};
+
+export const initializeMPesaPayment = async (
+  phoneNumber: string,
+  amount: number,
+  metadata: any = {}
+): Promise<PaymentSession> => {
+  console.log('[Subscriptions] Initializing M-Pesa payment:', {
+    phoneNumber,
+    amount,
+    metadata
+  });
+
+  try {
+    const response = await fetch(`${PAYMENT_SERVER_URL}/payment/mpesa/initiate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        phoneNumber,
+        amount,
+        metadata
+      }),
+    });
+
+    console.log('[Subscriptions] M-Pesa server response status:', response.status);
+    
+    if (!response.ok) {
+      let errorMessage = 'M-Pesa payment initialization failed';
+      try {
+        const errorData = await response.json();
+        console.error('[Subscriptions] M-Pesa server error:', errorData);
+        errorMessage = errorData.message || errorMessage;
+      } catch (e) {
+        console.error('[Subscriptions] Error parsing error response:', e);
+        const text = await response.text();
+        console.error('[Subscriptions] Raw error response:', text);
+      }
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    console.log('[Subscriptions] M-Pesa server success response:', data);
+    
+    if (!data.status) {
+      console.error('[Subscriptions] Invalid M-Pesa server response:', data);
+      throw new Error(data.message || 'Invalid M-Pesa server response');
+    }
+
+    return {
+      checkoutRequestID: data.data.checkoutRequestID,
+      merchantRequestID: data.data.merchantRequestID,
+      responseCode: data.data.responseCode,
+      customerMessage: data.data.customerMessage
+    };
+  } catch (error) {
+    console.error('[Subscriptions] M-Pesa payment initialization error:', error);
+    if (error instanceof Error) {
+      console.error('[Subscriptions] Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+    }
+    throw error;
+  }
+};
+
+export const verifyMPesaPayment = async (checkoutRequestId: string): Promise<boolean> => {
+  console.log('[Subscriptions] Verifying M-Pesa payment:', checkoutRequestId);
+
+  try {
+    const response = await fetch(
+      `${PAYMENT_SERVER_URL}/payment/mpesa/verify/${checkoutRequestId}`,
+      {
+        headers: {
+          'Accept': 'application/json'
+        }
+      }
+    );
+
+    if (!response.ok) {
+      console.error('[Subscriptions] M-Pesa verification failed:', response.status);
+      return false;
+    }
+
+    const data = await response.json();
+    console.log('[Subscriptions] M-Pesa verification response:', data);
+
+    if (!data.status) {
+      console.error('[Subscriptions] M-Pesa payment verification failed:', data);
+      return false;
+    }
+
+    const metadata = data.data.metadata;
+    if (!metadata) {
+      console.error('[Subscriptions] No metadata found in verification response');
+      return false;
+    }
+
+    console.log('[Subscriptions] Creating subscription with metadata:', metadata);
+    await createSubscription(
+      metadata.userId,
+      metadata.tier,
+      metadata.subscriptionType,
+      checkoutRequestId,
+      metadata.botName
+    );
+
+    return true;
+  } catch (error) {
+    console.error('[Subscriptions] M-Pesa payment verification error:', error);
+    if (error instanceof Error) {
+      console.error('[Subscriptions] Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+    }
+    return false;
   }
 }; 
