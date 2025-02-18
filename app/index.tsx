@@ -5,8 +5,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, withSpring, Easing, FadeIn, FadeOut, SlideInDown } from 'react-native-reanimated';
 import { loginWithEmail, resetPassword } from './firebase.config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
 import { ThemedText } from '@/components/ThemedText';
+import { Ionicons } from '@expo/vector-icons';
 
 const SAVED_EMAIL_KEY = '@saved_email';
 
@@ -22,6 +22,7 @@ function LoginScreen() {
   const emailPosition = useSharedValue(0);
   const emailScale = useSharedValue(1);
   const [isResetMode, setIsResetMode] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     loadSavedEmail();
@@ -223,14 +224,26 @@ function LoginScreen() {
                 editable={!loading}
               />
             </View>
-            <TextInput
-              style={styles.input}
-              placeholder="Password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              editable={!loading}
-            />
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={[styles.input, styles.passwordInput]}
+                placeholder="Password"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                editable={!loading}
+              />
+              <TouchableOpacity 
+                style={styles.eyeButton}
+                onPress={() => setShowPassword(!showPassword)}
+              >
+                <Ionicons 
+                  name={showPassword ? "eye-off" : "eye"} 
+                  size={20} 
+                  color="#64748B"
+                />
+              </TouchableOpacity>
+            </View>
             
             <TouchableOpacity 
               style={[styles.button, loading && styles.buttonDisabled]} 
@@ -455,7 +468,21 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '600',
     color: '#FF444F',
-  }
+  },
+  passwordContainer: {
+    position: 'relative',
+  },
+  passwordInput: {
+    paddingRight: 50,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 16,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 });
 
 export default LoginScreen;

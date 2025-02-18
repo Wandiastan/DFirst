@@ -64,6 +64,7 @@ function HomeScreen() {
   const [paWithdrawLink, setPaWithdrawLink] = useState(DEFAULT_PA_WITHDRAW);
   const [usePaymentAgent, setUsePaymentAgent] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -592,16 +593,20 @@ function HomeScreen() {
   return (
     <SafeAreaView edges={['top']} style={styles.container}>
       <View style={styles.header}>
-        <View>
-          <ThemedText style={styles.welcomeText}>Welcome back,</ThemedText>
-          <ThemedText style={styles.nameText}>{getCurrentUser()?.displayName}</ThemedText>
+        <ThemedText style={styles.title}>DFirst Trader</ThemedText>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity 
+            style={styles.logoutButton}
+            onPress={() => setShowLogoutModal(true)}
+          >
+            <Ionicons name="log-out-outline" size={24} color="#EF4444" />
+          </TouchableOpacity>
+          <Link href="/(app)/settings" asChild>
+            <TouchableOpacity style={styles.settingsButton}>
+              <Ionicons name="settings-outline" size={24} color="#1E293B" />
+            </TouchableOpacity>
+          </Link>
         </View>
-        <TouchableOpacity 
-          style={styles.headerButton}
-          onPress={() => router.push('/(app)/settings')}
-        >
-          <Ionicons name="settings-outline" size={24} color="#1E293B" />
-        </TouchableOpacity>
       </View>
       
       <View style={styles.container}>
@@ -841,6 +846,52 @@ function HomeScreen() {
           <ThemedText style={styles.partnerButtonIcon}>💎</ThemedText>
         </View>
       </TouchableOpacity>
+
+      {/* Logout Modal */}
+      <Modal
+        visible={showLogoutModal}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setShowLogoutModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <ThemedText style={styles.modalTitle}>Logout</ThemedText>
+              <TouchableOpacity 
+                onPress={() => setShowLogoutModal(false)}
+                style={styles.closeButton}
+              >
+                <Ionicons name="close" size={24} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalBody}>
+              <View style={[styles.warningIcon, { marginBottom: 16 }]}>
+                <Ionicons name="log-out" size={48} color="#EF4444" />
+              </View>
+              <ThemedText style={styles.disconnectWarning}>
+                Are you sure you want to logout? You'll need to sign in again to access your account.
+              </ThemedText>
+            </View>
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setShowLogoutModal(false)}
+              >
+                <ThemedText style={styles.cancelButtonText}>Cancel</ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.disconnectModalButton]}
+                onPress={handleLogout}
+              >
+                <ThemedText style={styles.disconnectModalButtonText}>Logout</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -861,16 +912,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     zIndex: 1,
   },
-  welcomeText: {
-    fontSize: 14,
-    color: '#64748B',
-  },
-  nameText: {
+  title: {
     fontSize: 20,
     fontWeight: '600',
     color: '#1E293B',
   },
-  headerButton: {
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  logoutButton: {
+    padding: 8,
+    borderRadius: 8,
+  },
+  settingsButton: {
     padding: 8,
     borderRadius: 8,
   },
@@ -883,13 +939,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
-  logoutButton: {
-    height: 50,
-    backgroundColor: '#007AFF',
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   buttonText: {
     color: '#FFFFFF',
     fontSize: 16,
@@ -898,28 +947,20 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
+    justifyContent: 'flex-end',
   },
   modalContent: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    width: '100%',
-    maxWidth: 400,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 5,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    minHeight: 300,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    marginBottom: 24,
   },
   modalTitle: {
     fontSize: 20,
@@ -930,37 +971,33 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   modalBody: {
-    padding: 24,
     alignItems: 'center',
   },
   warningIcon: {
-    marginBottom: 16,
+    alignItems: 'center',
   },
   disconnectWarning: {
+    color: '#64748B',
     fontSize: 16,
-    color: '#334155',
     textAlign: 'center',
-    lineHeight: 24,
   },
   modalFooter: {
     flexDirection: 'row',
-    padding: 16,
-    gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
+    justifyContent: 'space-between',
+    marginTop: 24,
   },
   modalButton: {
-    flex: 1,
-    height: 44,
+    padding: 12,
     borderRadius: 8,
-    justifyContent: 'center',
     alignItems: 'center',
+    flex: 1,
+    marginHorizontal: 6,
   },
   cancelButton: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#FEE2E2',
   },
   cancelButtonText: {
-    color: '#64748B',
+    color: '#EF4444',
     fontSize: 16,
     fontWeight: '600',
   },

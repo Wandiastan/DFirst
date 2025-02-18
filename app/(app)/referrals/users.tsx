@@ -4,6 +4,7 @@ import { ThemedText } from '@/components/ThemedText';
 import { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot, getFirestore, doc, setDoc, getDoc, addDoc } from 'firebase/firestore';
 import { getCurrentUser } from '../../firebase.config';
+import { Ionicons } from '@expo/vector-icons';
 
 interface BotPurchase {
   botName: string;
@@ -352,7 +353,12 @@ function PartnerProgramScreen() {
         >
           <View style={styles.popupContainer}>
             <View style={styles.popupContent}>
-              <ThemedText style={styles.popupTitle}>Welcome to the Partner Program!</ThemedText>
+              <View style={styles.popupHeader}>
+                <ThemedText style={styles.popupTitle}>Welcome to the Partner Program!</ThemedText>
+                <TouchableOpacity style={styles.modernCloseButton} onPress={handleClosePopup}>
+                  <Ionicons name="close" size={20} color="#64748B" />
+                </TouchableOpacity>
+              </View>
               <ThemedText style={styles.popupText}>
                 🌟 Earn money when your community members pay for the bot.
               </ThemedText>
@@ -377,14 +383,18 @@ function PartnerProgramScreen() {
               <ThemedText style={styles.popupText}>
                 🤝 Share your links to boost your income.
               </ThemedText>
-              <View style={styles.buttonRow}>
-                <TouchableOpacity style={styles.closeButton} onPress={handleClosePopup}>
-                  <ThemedText style={styles.closeButtonText}>Close</ThemedText>
+              <View style={styles.checkboxContainer}>
+                <TouchableOpacity 
+                  style={styles.checkbox} 
+                  onPress={() => setNeverShowPopup(!neverShowPopup)}
+                >
+                  {neverShowPopup && <Ionicons name="checkmark" size={16} color="#10B981" />}
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.neverShowButton} onPress={handleNeverShowPopup}>
-                  <ThemedText style={styles.neverShowButtonText}>Don't Show Again</ThemedText>
-                </TouchableOpacity>
+                <ThemedText style={styles.checkboxText}>Don't show this message again</ThemedText>
               </View>
+              <TouchableOpacity style={styles.modernCloseButtonLarge} onPress={handleClosePopup}>
+                <ThemedText style={styles.modernCloseButtonText}>Got it</ThemedText>
+              </TouchableOpacity>
             </View>
           </View>
         </Modal>
@@ -640,7 +650,7 @@ function PartnerProgramScreen() {
                       {user.purchases.length > 0 ? (
                         <View style={styles.userBadges}>
                           {user.purchases.filter(p => p.status !== 'withdrawn').map((purchase, idx) => (
-                            <View key={idx} style={[styles.botBadge, { backgroundColor: getBotColor(purchase.botName) }]}>
+                            <View key={idx} style={styles.botBadge}>
                               <ThemedText style={styles.botBadgeText}>
                                 {purchase.botName.split(' ')[0]} • {purchase.sharePercentage}%
                               </ThemedText>
@@ -1275,6 +1285,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'column',
   },
+  popupHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    width: '100%',
+  },
   popupTitle: {
     fontSize: 20,
     fontWeight: 'bold',
@@ -1287,36 +1304,56 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: '#333333',
   },
-  closeButton: {
-    backgroundColor: '#059669',
+  modernCloseButton: {
     padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#F1F5F9',
+  },
+  modernCloseButtonLarge: {
+    backgroundColor: '#1E293B',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
     borderRadius: 8,
-    marginTop: 10,
-    flex: 1,
-  },
-  closeButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  neverShowButton: {
-    backgroundColor: '#DC2626',
-    padding: 8,
-    borderRadius: 8,
-    marginTop: 10,
-    flex: 1,
-  },
-  neverShowButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 16,
     width: '100%',
-    marginTop: 10,
-  }
+  },
+  modernCloseButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  checkboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    gap: 8,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    borderRadius: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  checkboxText: {
+    fontSize: 14,
+    color: '#64748B',
+  },
+  botBadge: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  botBadgeText: {
+    fontSize: 12,
+    color: '#4F46E5',
+    fontWeight: '500',
+  },
 });
 
 export default PartnerProgramScreen; 

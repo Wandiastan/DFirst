@@ -330,7 +330,10 @@ function BotScreen() {
 
   const checkDisclaimerPreference = async () => {
     try {
-      const disclaimerShown = await AsyncStorage.getItem(DISCLAIMER_SHOWN_KEY);
+      const user = getCurrentUser();
+      if (!user) return false;
+      const userDisclaimerKey = `${DISCLAIMER_SHOWN_KEY}_${user.uid}`;
+      const disclaimerShown = await AsyncStorage.getItem(userDisclaimerKey);
       return disclaimerShown === 'true';
     } catch (error) {
       console.error('Error checking disclaimer preference:', error);
@@ -453,12 +456,21 @@ function BotScreen() {
     // Check cooldown before starting
     if (cooldownTime > 0) return;
 
-    // Starting bot logic
+    // Check if user is logged in
+    const user = getCurrentUser();
+    if (!user) {
+      Alert.alert('Error', 'Please sign in to use the bot');
+      router.push('/(app)/home');
+      return;
+    }
+
+    // Always show disclaimer for first bot start in the session
     const shouldSkipDisclaimer = await checkDisclaimerPreference();
-    if (shouldSkipDisclaimer) {
-      startBotAfterDisclaimer();
-    } else {
+    if (!showedPopup || !shouldSkipDisclaimer) {
       setShowDisclaimer(true);
+      setShowedPopup(true);
+    } else {
+      startBotAfterDisclaimer();
     }
   };
 
@@ -466,7 +478,11 @@ function BotScreen() {
     setShowDisclaimer(false);
     if (skipDisclaimer) {
       try {
-        await AsyncStorage.setItem(DISCLAIMER_SHOWN_KEY, 'true');
+        const user = getCurrentUser();
+        if (user) {
+          const userDisclaimerKey = `${DISCLAIMER_SHOWN_KEY}_${user.uid}`;
+          await AsyncStorage.setItem(userDisclaimerKey, 'true');
+        }
       } catch (error) {
         console.error('[Bot] Error saving disclaimer preference:', error);
       }

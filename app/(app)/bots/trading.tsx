@@ -28,6 +28,15 @@ interface BotCard {
 
 const bots: BotCard[] = [
   {
+    name: 'Metro Differ Bot',
+    description: 'Smart digit differ trading with random and pattern-based strategies',
+    symbol: 'R_25',
+    features: ['Random Strategy', 'Pattern Analysis', 'Smart Recovery'],
+    file: 'metrodiffer',
+    color: '#9C27B0',
+    rating: 4.6
+  },
+  {
     name: 'Safe Over Bot',
     description: 'Low-risk trading on digits over 0 with consecutive pattern analysis',
     symbol: 'R_10',
@@ -71,15 +80,6 @@ const bots: BotCard[] = [
     file: 'smarteven',
     color: '#673AB7',
     rating: 4.8
-  },
-  {
-    name: 'Metro Differ Bot',
-    description: 'Smart digit differ trading with random and pattern-based strategies',
-    symbol: 'R_25',
-    features: ['Random Strategy', 'Pattern Analysis', 'Smart Recovery'],
-    file: 'metrodiffer',
-    color: '#9C27B0',
-    rating: 4.6
   },
   {
     name: 'Alien Rise Fall Bot',
@@ -576,6 +576,8 @@ function BotCard({ bot }: { bot: BotCard }) {
 }
 
 function TradingScreen() {
+  const [showComingSoonModal, setShowComingSoonModal] = useState(false);
+
   useEffect(() => {
     const subscription = Linking.addEventListener('url', async (event) => {
       if (event.url.includes('dfirsttrader://payment/verify')) {
@@ -625,6 +627,16 @@ function TradingScreen() {
     };
   }, []);
 
+  const handleComingSoonPress = () => {
+    const user = getCurrentUser();
+    if (!user) {
+      Alert.alert('Login Required', 'Please login to access this feature');
+      router.push('/');
+      return;
+    }
+    setShowComingSoonModal(true);
+  };
+
   return (
     <SafeAreaView edges={['top']} style={styles.safeArea}>
       <View style={styles.container}>
@@ -633,6 +645,75 @@ function TradingScreen() {
           <ThemedText style={styles.subtitle}>Choose a bot to start trading</ThemedText>
         </View>
         
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity 
+            style={[styles.actionButton, styles.addButton]} 
+            onPress={handleComingSoonPress}
+          >
+            <ThemedText style={styles.addButtonText}>+ Add Bot</ThemedText>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.actionButton, styles.platformButton]} 
+            onPress={handleComingSoonPress}
+          >
+            <ThemedText style={styles.platformButtonText}>DERIV BOTS</ThemedText>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.actionButton, styles.platformButton]} 
+            onPress={handleComingSoonPress}
+          >
+            <ThemedText style={styles.platformButtonText}>MT4/MT5 BOTS</ThemedText>
+          </TouchableOpacity>
+        </View>
+
+        {/* Coming Soon Modal */}
+        <Modal
+          visible={showComingSoonModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowComingSoonModal(false)}
+        >
+          <View style={styles.comingSoonModalContainer}>
+            <View style={styles.comingSoonModalContent}>
+              <View style={styles.comingSoonModalHeader}>
+                <ThemedText style={styles.comingSoonModalTitle}>Coming Soon! 🚀</ThemedText>
+                <TouchableOpacity 
+                  onPress={() => setShowComingSoonModal(false)}
+                  style={styles.comingSoonModalClose}
+                >
+                  <ThemedText style={styles.comingSoonModalCloseText}>×</ThemedText>
+                </TouchableOpacity>
+              </View>
+              
+              <ThemedText style={styles.comingSoonModalText}>
+                Advanced fully automated bots are on the way to help you succeed in your trading journey!
+              </ThemedText>
+              
+              <ThemedText style={styles.comingSoonModalSubtext}>
+                Meanwhile, join our community to interact with other traders and creative minds.
+              </ThemedText>
+
+              <View style={styles.comingSoonModalButtons}>
+                <TouchableOpacity
+                  style={styles.joinButton}
+                  onPress={() => {
+                    Linking.openURL('https://chat.whatsapp.com/E1kSuMhFxulJcZiwoQyoRU');
+                    setShowComingSoonModal(false);
+                  }}
+                >
+                  <ThemedText style={styles.joinButtonText}>Join Community</ThemedText>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.laterButton}
+                  onPress={() => setShowComingSoonModal(false)}
+                >
+                  <ThemedText style={styles.laterButtonText}>Maybe Later</ThemedText>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
         <ScrollView 
           style={styles.scrollView}
           showsVerticalScrollIndicator={false}
@@ -915,6 +996,121 @@ const styles = StyleSheet.create({
   freeBadgeText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  actionButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  addButton: {
+    backgroundColor: '#4a90e2',
+    minWidth: 85,
+  },
+  platformButton: {
+    backgroundColor: '#2d2d2d',
+    minWidth: 90,
+  },
+  addButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  platformButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  comingSoonModalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    padding: 16,
+  },
+  comingSoonModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    width: '85%',
+    maxWidth: 300,
+    padding: 20,
+    alignItems: 'center',
+  },
+  comingSoonModalHeader: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  comingSoonModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  comingSoonModalClose: {
+    padding: 4,
+  },
+  comingSoonModalCloseText: {
+    fontSize: 24,
+    color: '#64748B',
+    fontWeight: '300',
+  },
+  comingSoonModalText: {
+    fontSize: 14,
+    color: '#1E293B',
+    textAlign: 'center',
+    marginBottom: 8,
+    lineHeight: 20,
+  },
+  comingSoonModalSubtext: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  comingSoonModalButtons: {
+    width: '100%',
+    gap: 8,
+  },
+  joinButton: {
+    backgroundColor: '#4a90e2',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    width: '100%',
+    alignItems: 'center',
+  },
+  joinButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  laterButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    width: '100%',
+    alignItems: 'center',
+  },
+  laterButtonText: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '500',
   },
 });
 

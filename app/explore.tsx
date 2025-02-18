@@ -6,6 +6,7 @@ import { ThemedText } from '@/components/ThemedText';
 import { createAccount } from './firebase.config';
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
 
 function SignUpScreen() {
   const [email, setEmail] = useState('');
@@ -13,6 +14,7 @@ function SignUpScreen() {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [referralCode, setReferralCode] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     checkInitialLink();
@@ -122,14 +124,26 @@ function SignUpScreen() {
             autoCapitalize="none"
             editable={!loading}
           />
-          <TextInput
-            style={styles.input}
-            placeholder="Password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            editable={!loading}
-          />
+          <View style={styles.passwordContainer}>
+            <TextInput
+              style={[styles.input, styles.passwordInput]}
+              placeholder="Password"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+              editable={!loading}
+            />
+            <TouchableOpacity 
+              style={styles.eyeButton}
+              onPress={() => setShowPassword(!showPassword)}
+            >
+              <Ionicons 
+                name={showPassword ? "eye-off" : "eye"} 
+                size={20} 
+                color="#64748B"
+              />
+            </TouchableOpacity>
+          </View>
           <TextInput
             style={styles.input}
             placeholder="Partner Code (Optional)"
@@ -268,7 +282,21 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '600',
     color: '#FF444F',
-  }
+  },
+  passwordContainer: {
+    position: 'relative',
+  },
+  passwordInput: {
+    paddingRight: 50,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 16,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 });
 
 export default SignUpScreen;
