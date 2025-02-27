@@ -837,16 +837,6 @@ function HomeScreen() {
         </Modal>
       </View>
 
-      <TouchableOpacity
-        style={styles.partnerButton}
-        onPress={() => router.push('/referrals/users')}
-      >
-        <View style={styles.partnerButtonContent}>
-          <ThemedText style={styles.partnerButtonText}>Join Partner Program</ThemedText>
-          <ThemedText style={styles.partnerButtonIcon}>💎</ThemedText>
-        </View>
-      </TouchableOpacity>
-
       {/* Logout Modal */}
       <Modal
         visible={showLogoutModal}

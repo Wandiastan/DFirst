@@ -186,14 +186,11 @@ const DISCLAIMER_SHOWN_KEY = '@disclaimer_shown';
 function BotScreen() {
   const { bot } = useLocalSearchParams();
   const [isRunning, setIsRunning] = useState(false);
-  const [config, setConfig] = useState<BotConfig>(() => {
-    const defaultMartingale = ['safeoverbot', 'safeunderbot', 'DIFFERbot', 'metrodiffer'].includes(bot as string) ? '15' : '2.1';
-    return {
-      initialStake: '1',
-      takeProfit: '0',  // Will be updated when balance is confirmed
-      stopLoss: '1000',
-      martingaleMultiplier: defaultMartingale
-    };
+  const [config, setConfig] = useState<BotConfig>({
+    initialStake: bot === 'smartvolatility' ? '1' : '0.35',
+    takeProfit: '0',  // Will be updated when balance is confirmed
+    stopLoss: '1000',
+    martingaleMultiplier: ['safeoverbot', 'safeunderbot', 'DIFFERbot', 'metrodiffer'].includes(bot as string) ? '15' : '2.1'
   });
   const [stats, setStats] = useState<BotStats>({
     currentStake: 0,

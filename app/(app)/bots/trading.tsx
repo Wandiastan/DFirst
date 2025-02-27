@@ -24,6 +24,7 @@ interface BotCard {
   file: string;
   color: string;
   rating: number;
+  locked: boolean;
 }
 
 const bots: BotCard[] = [
@@ -34,7 +35,8 @@ const bots: BotCard[] = [
     features: ['Random Strategy', 'Pattern Analysis', 'Smart Recovery'],
     file: 'metrodiffer',
     color: '#9C27B0',
-    rating: 4.6
+    rating: 4.6,
+    locked: false
   },
   {
     name: 'Safe Over Bot',
@@ -43,7 +45,8 @@ const bots: BotCard[] = [
     features: ['Low Risk', 'Zero Pattern Analysis', 'Conservative Trading'],
     file: 'safeoverbot',
     color: '#4CAF50',
-    rating: 4.7
+    rating: 4.7,
+    locked: false
   },
   {
     name: 'Safe Under Bot',
@@ -52,7 +55,8 @@ const bots: BotCard[] = [
     features: ['Low Risk', 'Nine Pattern Analysis', 'Conservative Trading'],
     file: 'safeunderbot',
     color: '#2196F3',
-    rating: 4.7
+    rating: 4.7,
+    locked: false
   },
   {
     name: 'Russian Odds Bot',
@@ -61,7 +65,8 @@ const bots: BotCard[] = [
     features: ['5-Tick Analysis', 'Quick Recovery', 'Pattern Trading'],
     file: 'russianodds',
     color: '#FF4081',
-    rating: 4.6
+    rating: 4.6,
+    locked: true
   },
   {
     name: 'Smart Volatility Bot',
@@ -70,7 +75,8 @@ const bots: BotCard[] = [
     features: ['Volatility Measurement', 'Dynamic Timeframes', 'Smart Risk Adjustment'],
     file: 'smartvolatility',
     color: '#E91E63',
-    rating: 4.7
+    rating: 4.7,
+    locked: false
   },
   {
     name: 'Smart Even Bot',
@@ -79,7 +85,8 @@ const bots: BotCard[] = [
     features: ['Pattern Analysis', 'Smart Recovery', 'Streak Detection'],
     file: 'smarteven',
     color: '#673AB7',
-    rating: 4.8
+    rating: 4.8,
+    locked: true
   },
   {
     name: 'Alien Rise Fall Bot',
@@ -88,7 +95,8 @@ const bots: BotCard[] = [
     features: ['Smart Recovery', 'Trend Analysis', 'Adaptive Trading'],
     file: 'alienrisefall',
     color: '#00BCD4',
-    rating: 4.8
+    rating: 4.8,
+    locked: false
   },
   {
     name: 'DIFFER Bot',
@@ -97,7 +105,8 @@ const bots: BotCard[] = [
     features: ['Pattern Recognition', 'Martingale Strategy', 'Real-time Stats'],
     file: 'DIFFERbot',
     color: '#FF6B6B',
-    rating: 4.5
+    rating: 4.5,
+    locked: false
   },
   {
     name: 'No Touch Bot',
@@ -106,7 +115,8 @@ const bots: BotCard[] = [
     features: ['Technical Analysis', 'Volatility Trading', 'Risk Management'],
     file: 'notouchbot',
     color: '#D4A5A5',
-    rating: 4.6
+    rating: 4.6,
+    locked: true
   },
   {
     name: 'Rise Fall Bot',
@@ -115,7 +125,8 @@ const bots: BotCard[] = [
     features: ['Multiple Indicators', 'Volume Analysis', 'Risk Management'],
     file: 'risefallbot',
     color: '#2A363B',
-    rating: 4.9
+    rating: 4.9,
+    locked: true
   },
   {
     name: 'High Risk Over Bot',
@@ -124,7 +135,8 @@ const bots: BotCard[] = [
     features: ['High Risk', 'High Payout', 'Dynamic Barriers'],
     file: 'overbot',
     color: '#FFA726',
-    rating: 4.4
+    rating: 4.4,
+    locked: true
   },
   {
     name: 'High Risk Under Bot',
@@ -133,7 +145,8 @@ const bots: BotCard[] = [
     features: ['High Risk', 'High Payout', 'Dynamic Barriers'],
     file: 'underbot',
     color: '#99B898',
-    rating: 4.3
+    rating: 4.3,
+    locked: true
   }
 ];
 
@@ -141,6 +154,7 @@ const MPESA_NUMBER_KEY = '@mpesa_number';
 
 function BotCard({ bot }: { bot: BotCard }) {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [selectedDuration, setSelectedDuration] = useState<'weekly' | 'monthly'>('weekly');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isModalLoading, setIsModalLoading] = useState(false);
@@ -186,14 +200,8 @@ function BotCard({ bot }: { bot: BotCard }) {
     try {
       setIsModalLoading(true);
       console.log('[Trading] Checking bot access for:', bot.name);
-      if (isBotFree(bot.name)) {
-        console.log('[Trading] Bot is free, redirecting to:', bot.file);
-        router.push(`/bots/${bot.file}`);
-        return;
-      }
-
+      
       const user = getCurrentUser();
-      console.log('[Trading] Current user:', user?.uid);
       if (!user) {
         console.log('[Trading] No user found, redirecting to auth');
         Alert.alert('Login Required', 'Please login to access this bot');
@@ -201,15 +209,6 @@ function BotCard({ bot }: { bot: BotCard }) {
         return;
       }
 
-      // Check if user has active subscription for this bot
-      const botSubscription = await checkSubscriptionStatus(user.uid, bot.name);
-      if (botSubscription) {
-        console.log('[Trading] Active subscription found, redirecting to bot');
-        router.push(`/bots/${bot.file}`);
-        return;
-      }
-
-      console.log('[Trading] No active subscription, showing payment modal');
       setShowPaymentModal(true);
     } catch (error) {
       console.error('[Trading] Access check failed:', error);
@@ -391,30 +390,15 @@ function BotCard({ bot }: { bot: BotCard }) {
       <TouchableOpacity
         style={[styles.accessButton, { backgroundColor: bot.color }]}
         onPress={handleBotAccess}
-        disabled={isModalLoading || isCheckingAccess}
+        disabled={isModalLoading}
       >
-        {isModalLoading || isCheckingAccess ? (
+        {isModalLoading ? (
           <ActivityIndicator color="#FFFFFF" />
         ) : (
           <View style={styles.accessButtonContent}>
             <ThemedText style={styles.buttonText}>
-              {isBotFree(bot.name) ? 'Access Bot' : 
-               subscription ? 'Access Bot' : 'Subscribe to Access'}
+              {bot.locked ? 'Locked Bot 🔒' : 'Open Bot'}
             </ThemedText>
-            {subscription && (
-              <View style={[styles.durationBadge, { backgroundColor: '#FFFFFF30' }]}>
-                <ThemedText style={[styles.durationText, { color: '#FFFFFF' }]}>
-                  {getSubscriptionTimeRemaining(subscription.endDate)}
-                </ThemedText>
-              </View>
-            )}
-            {isBotFree(bot.name) && (
-              <View style={[styles.freeBadge, { backgroundColor: '#FFFFFF30' }]}>
-                <ThemedText style={[styles.freeBadgeText, { color: '#FFFFFF' }]}>
-                  FREE
-                </ThemedText>
-              </View>
-            )}
           </View>
         )}
       </TouchableOpacity>
@@ -423,7 +407,7 @@ function BotCard({ bot }: { bot: BotCard }) {
         visible={showPaymentModal}
         transparent
         animationType="slide"
-        onRequestClose={() => !isProcessing && setShowPaymentModal(false)}
+        onRequestClose={() => setShowPaymentModal(false)}
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
@@ -436,138 +420,102 @@ function BotCard({ bot }: { bot: BotCard }) {
               {bot.features[0]} • {bot.features[1]} • {bot.features[2]}
             </ThemedText>
 
-            <View style={styles.durationContainer}>
-              <TouchableOpacity
-                style={[
-                  styles.durationButton,
-                  selectedDuration === 'weekly' && [styles.selectedDuration, { borderColor: bot.color }]
-                ]}
-                onPress={() => !isProcessing && setSelectedDuration('weekly')}
-                disabled={isProcessing}
-              >
-                <View style={styles.durationContent}>
-                  <ThemedText style={[
-                    styles.durationText,
-                    selectedDuration === 'weekly' && { color: bot.color }
-                  ]}>
-                    Weekly
+            <ThemedText style={styles.modalDescription}>
+              {bot.locked ? 
+                "Unfortunately, this bot is currently locked. Join our community to connect with like-minded traders and share trading ideas!" :
+                <View>
+                  <ThemedText style={styles.tipsText}>
+                    {"💡 TRADING TIPS:\n• The most important aspect of Deriv trading is risk management\n• Trust in slow, steady growth - avoid rushing for quick profits\n• Focus on consistent small wins rather than risky big trades"}
                   </ThemedText>
-                  <ThemedText style={[
-                    styles.priceText,
-                    selectedDuration === 'weekly' && { color: bot.color }
-                  ]}>
-                    KES {getBotTier(bot.name)?.weeklyPrice}
+                  <ThemedText style={styles.modalDescription}>
+                    {"Before you start trading, join our community to connect with like-minded traders and share trading ideas!"}
                   </ThemedText>
                 </View>
+              }
+            </ThemedText>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.joinButton, { backgroundColor: bot.color }]}
+                onPress={() => {
+                  setShowCommunityModal(true);
+                  setShowPaymentModal(false);
+                }}
+              >
+                <ThemedText style={styles.joinButtonText}>Join Group</ThemedText>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[
-                  styles.durationButton,
-                  selectedDuration === 'monthly' && [styles.selectedDuration, { borderColor: bot.color }]
-                ]}
-                onPress={() => !isProcessing && setSelectedDuration('monthly')}
-                disabled={isProcessing}
+                style={styles.maybeLaterButton}
+                onPress={() => {
+                  setShowPaymentModal(false);
+                  if (!bot.locked) {
+                    router.push(`/bots/${bot.file}`);
+                  }
+                }}
               >
-                <View style={styles.durationContent}>
-                  <ThemedText style={[
-                    styles.durationText,
-                    selectedDuration === 'monthly' && { color: bot.color }
-                  ]}>
-                    Monthly
-                  </ThemedText>
-                  <ThemedText style={[
-                    styles.priceText,
-                    selectedDuration === 'monthly' && { color: bot.color }
-                  ]}>
-                    KES {getBotTier(bot.name)?.monthlyPrice}
-                  </ThemedText>
-                  <ThemedText style={styles.savingsTag}>Save 20%</ThemedText>
-                </View>
+                <ThemedText style={styles.maybeLaterText}>Maybe Later</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showCommunityModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCommunityModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <View style={[styles.modalHeader, { backgroundColor: bot.color + '20' }]}>
+              <ThemedText style={[styles.modalBotName, { color: bot.color }]}>Join Community</ThemedText>
+              <TouchableOpacity 
+                onPress={() => setShowCommunityModal(false)}
+                style={styles.modalClose}
+              >
+                <ThemedText style={styles.modalCloseText}>×</ThemedText>
               </TouchableOpacity>
             </View>
 
-            <View style={styles.paymentSection}>
-              <View style={styles.paymentMethodContainer}>
-                <TouchableOpacity
-                  style={[
-                    styles.paymentMethodButton,
-                    paymentMethod === 'mpesa' && [styles.selectedPaymentMethod, { borderColor: bot.color }]
-                  ]}
-                  onPress={() => setPaymentMethod('mpesa')}
-                  disabled={isProcessing}
-                >
-                  <ThemedText style={[
-                    styles.paymentMethodText,
-                    paymentMethod === 'mpesa' && { color: bot.color }
-                  ]}>
-                    M-Pesa
-                  </ThemedText>
-                </TouchableOpacity>
+            <ThemedText style={styles.modalDescription}>
+              Choose your preferred platform to connect with our trading community:
+            </ThemedText>
 
-                <TouchableOpacity
-                  style={[
-                    styles.paymentMethodButton,
-                    paymentMethod === 'card' && [styles.selectedPaymentMethod, { borderColor: bot.color }]
-                  ]}
-                  onPress={() => setPaymentMethod('card')}
-                  disabled={isProcessing}
-                >
-                  <ThemedText style={[
-                    styles.paymentMethodText,
-                    paymentMethod === 'card' && { color: bot.color }
-                  ]}>
-                    Card
-                  </ThemedText>
-                </TouchableOpacity>
-              </View>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.communityButton, { backgroundColor: '#0088cc' }]}
+                onPress={() => {
+                  Linking.openURL('https://t.me/+YAJDx7uwVcRhMjRk');
+                  setShowCommunityModal(false);
+                }}
+              >
+                <ThemedText style={styles.communityButtonText}>Join Telegram</ThemedText>
+              </TouchableOpacity>
 
-              {paymentMethod === 'mpesa' && (
-                <View style={styles.phoneInputContainer}>
-                  <TextInput
-                    style={styles.phoneInput}
-                    placeholder="Phone Number (e.g., 0712345678)"
-                    value={phoneNumber}
-                    onChangeText={setPhoneNumber}
-                    keyboardType="phone-pad"
-                    maxLength={10}
-                    editable={!isProcessing}
-                  />
-                </View>
-              )}
+              <TouchableOpacity
+                style={[styles.communityButton, { backgroundColor: '#25D366' }]}
+                onPress={() => {
+                  Linking.openURL('https://chat.whatsapp.com/E1kSuMhFxulJcZiwoQyoRU');
+                  setShowCommunityModal(false);
+                }}
+              >
+                <ThemedText style={styles.communityButtonText}>Join WhatsApp</ThemedText>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.maybeLaterButton}
+                onPress={() => {
+                  setShowCommunityModal(false);
+                  if (!bot.locked) {
+                    router.push(`/bots/${bot.file}`);
+                  }
+                }}
+              >
+                <ThemedText style={styles.maybeLaterText}>Maybe Later</ThemedText>
+              </TouchableOpacity>
             </View>
-
-            <TouchableOpacity
-              style={[
-                styles.paymentButton,
-                { backgroundColor: bot.color, opacity: isProcessing ? 0.7 : 1 }
-              ]}
-              onPress={handlePayment}
-              disabled={isProcessing}
-            >
-              {isProcessing ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator color="#FFFFFF" />
-                  <ThemedText style={[styles.paymentButtonText, styles.loadingText]}>
-                    Processing...
-                  </ThemedText>
-                </View>
-              ) : (
-                <ThemedText style={styles.paymentButtonText}>
-                  {paymentMethod === 'mpesa' ? 'Pay with M-Pesa' : 'Pay with Card'}
-                </ThemedText>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => !isProcessing && setShowPaymentModal(false)}
-              disabled={isProcessing}
-            >
-              <ThemedText style={[styles.cancelText, isProcessing && styles.disabledText]}>
-                Cancel
-              </ThemedText>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -695,14 +643,25 @@ function TradingScreen() {
 
               <View style={styles.comingSoonModalButtons}>
                 <TouchableOpacity
-                  style={styles.joinButton}
+                  style={[styles.communityButton, { backgroundColor: '#0088cc' }]}
+                  onPress={() => {
+                    Linking.openURL('https://t.me/+YAJDx7uwVcRhMjRk');
+                    setShowComingSoonModal(false);
+                  }}
+                >
+                  <ThemedText style={styles.communityButtonText}>Join Telegram</ThemedText>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.communityButton, { backgroundColor: '#25D366' }]}
                   onPress={() => {
                     Linking.openURL('https://chat.whatsapp.com/E1kSuMhFxulJcZiwoQyoRU');
                     setShowComingSoonModal(false);
                   }}
                 >
-                  <ThemedText style={styles.joinButtonText}>Join Community</ThemedText>
+                  <ThemedText style={styles.communityButtonText}>Join WhatsApp</ThemedText>
                 </TouchableOpacity>
+
                 <TouchableOpacity
                   style={styles.laterButton}
                   onPress={() => setShowComingSoonModal(false)}
@@ -871,131 +830,48 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingBottom: 12,
   },
-  durationContainer: {
-    padding: 12,
-    gap: 8,
-  },
-  durationButton: {
-    padding: 10,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#F8FAFC',
-  },
-  durationContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingRight: 55,
-  },
-  selectedDuration: {
-    backgroundColor: '#FFFFFF',
-  },
-  durationText: {
+  modalDescription: {
     fontSize: 14,
-    fontWeight: '600',
     color: '#64748B',
+    textAlign: 'center',
+    marginBottom: 20,
   },
-  priceText: {
+  tipsText: {
     fontSize: 14,
-    fontWeight: '700',
-    color: '#64748B',
-  },
-  savingsTag: {
-    position: 'absolute',
-    right: -8,
-    top: -8,
-    backgroundColor: '#22C55E',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    color: '#FFFFFF',
-    fontSize: 10,
+    color: '#2563EB',
     fontWeight: '600',
+    textAlign: 'left',
+    paddingHorizontal: 16,
+    marginBottom: 16,
   },
-  paymentSection: {
-    padding: 12,
+  modalButtons: {
+    width: '100%',
     gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 16
   },
-  paymentMethodContainer: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  paymentMethodButton: {
-    flex: 1,
-    height: 40,
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
+  joinButton: {
+    backgroundColor: '#4a90e2',
+    paddingVertical: 12,
     borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    width: '100%',
+    alignItems: 'center'
   },
-  selectedPaymentMethod: {
-    backgroundColor: '#FFFFFF',
-  },
-  paymentMethodText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#64748B',
-  },
-  phoneInputContainer: {
-    marginTop: 4,
-  },
-  phoneInput: {
-    height: 40,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    fontSize: 14,
-    backgroundColor: '#F8FAFC',
-  },
-  paymentButton: {
-    margin: 12,
-    padding: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  paymentButtonText: {
+  joinButtonText: {
     color: '#FFFFFF',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '600'
   },
-  cancelButton: {
-    alignItems: 'center',
-    paddingBottom: 12,
+  maybeLaterButton: {
+    paddingVertical: 12,
+    borderRadius: 8,
+    width: '100%',
+    alignItems: 'center'
   },
-  cancelText: {
+  maybeLaterText: {
     color: '#64748B',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  loadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  loadingText: {
-    marginLeft: 8,
-  },
-  disabledText: {
-    opacity: 0.5,
-  },
-  durationBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  freeBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  freeBadgeText: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '500'
   },
   buttonContainer: {
     flexDirection: 'row',
@@ -1085,32 +961,38 @@ const styles = StyleSheet.create({
   },
   comingSoonModalButtons: {
     width: '100%',
-    gap: 8,
+    gap: 12,
+    marginTop: 20
   },
-  joinButton: {
-    backgroundColor: '#4a90e2',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+  communityButton: {
+    paddingVertical: 12,
     borderRadius: 8,
     width: '100%',
-    alignItems: 'center',
+    alignItems: 'center'
   },
-  joinButtonText: {
+  communityButtonText: {
     color: '#FFFFFF',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '600'
   },
   laterButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderRadius: 8,
     width: '100%',
-    alignItems: 'center',
+    alignItems: 'center'
   },
   laterButtonText: {
     color: '#64748B',
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '500'
+  },
+  modalClose: {
+    padding: 4,
+  },
+  modalCloseText: {
+    fontSize: 24,
+    color: '#64748B',
+    fontWeight: '300',
   },
 });
 
