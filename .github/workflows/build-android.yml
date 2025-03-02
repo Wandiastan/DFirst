@@ -27,14 +27,15 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm install
-          cd android
+          npm install --legacy-peer-deps
+          cd android && chmod +x gradlew
           ./gradlew clean
 
       - name: Build Android Release
+        working-directory: android
         run: |
-          cd android
-          ./gradlew assembleRelease
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
